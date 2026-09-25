@@ -37,7 +37,7 @@ export function thinkBot(g: Game, b: Babo, dt: number, diff: { react: number; ai
     br.think = 0.2 + Math.random() * 0.1;
     let best = -1, bestScore = Infinity;
     for (const o of g.babos) {
-      if (o === b || !o.alive) continue;
+      if (o === b || !o.alive || !g.canDamage(b, o)) continue;
       const d = Math.hypot(o.x - b.x, o.z - b.z);
       if (d > 20) continue;
       const vis = g.arena.raycast(b.x, b.z, o.x, o.z) < 0;
@@ -158,6 +158,19 @@ export function thinkBot(g: Game, b: Babo, dt: number, diff: { react: number; ai
       g.throwNade(b, hx, hz); br.nadeT = 3 + Math.random() * 4;
     } else br.nadeT = 0.8;
   } else if (br.nadeT <= 0) br.nadeT = 1;
+
+  // --- ability
+  if (b.abCool <= 0 && tAlive && Math.random() < dt * 6 * (0.4 + diff.nade)) {
+    const recentlyHit = g.clock - b.lastHitT < 0.4;
+    switch (b.ability) {
+      case 'dash': b.wantAbility = (visible && dist < 5 && b.hp < 40) || br.stuckT > 0.4 || (visible && w.preferred < 4 && dist > 4 && dist < 8); break;
+      case 'spikes': b.wantAbility = visible && dist < 2.4; if (b.wantAbility) { b.moveX = (t.x - b.x) / dist; b.moveZ = (t.z - b.z) / dist; } break;
+      case 'bubble': b.wantAbility = recentlyHit && b.hp < 75; break;
+      case 'shockwave': b.wantAbility = visible && dist < 3.4; break;
+    }
+  }
+  // keep ramming while the spikes are out
+  if (b.abT > 0 && b.ability === 'spikes' && tAlive && visible) { b.moveX = (t.x - b.x) / dist; b.moveZ = (t.z - b.z) / dist; }
 }
 
 function nearestPickup(g: Game, b: Babo, kinds: string[]) {

@@ -7,12 +7,12 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { HALF } from './arena';
 
 export type Quality = 'ultra' | 'high' | 'medium' | 'low';
-export interface QualityDef { label: string; ao: boolean; aoScale: number; bloom: boolean; shadows: boolean; pr: number; shadow: number }
+export interface QualityDef { label: string; msaa: number; ao: boolean; aoScale: number; bloom: boolean; shadows: boolean; pr: number; shadow: number }
 export const QUALITY: Record<Quality, QualityDef> = {
-  ultra: { label: 'Ultra', ao: true, aoScale: 1, bloom: true, shadows: true, pr: 2, shadow: 2048 },
-  high: { label: 'High', ao: true, aoScale: 0.5, bloom: true, shadows: true, pr: 1.5, shadow: 2048 },
-  medium: { label: 'Medium', ao: false, aoScale: 0.5, bloom: true, shadows: true, pr: 1.25, shadow: 1024 },
-  low: { label: 'Low', ao: false, aoScale: 0.5, bloom: false, shadows: true, pr: 1, shadow: 1024 },
+  ultra: { label: 'Ultra', msaa: 4, ao: true, aoScale: 1, bloom: true, shadows: true, pr: 2, shadow: 2048 },
+  high: { label: 'High', msaa: 4, ao: true, aoScale: 0.5, bloom: true, shadows: true, pr: 1.5, shadow: 2048 },
+  medium: { label: 'Medium', msaa: 2, ao: false, aoScale: 0.5, bloom: true, shadows: true, pr: 1.25, shadow: 1024 },
+  low: { label: 'Low', msaa: 0, ao: false, aoScale: 0.5, bloom: false, shadows: true, pr: 1, shadow: 1024 },
 };
 
 /** Live switches the perf panel can flip independently of the preset. */
@@ -38,7 +38,8 @@ export class Renderer {
   private camPos = new THREE.Vector3(0, 30, 14);
 
   constructor(canvas: HTMLCanvasElement) {
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+    // MSAA happens in the composer's render target instead (the default framebuffer's AA is wasted behind post-processing)
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.info.autoReset = false; // the composer renders several passes per frame; count them all
@@ -64,7 +65,7 @@ export class Renderer {
     s.add(this.sun); s.add(this.sun.target);
     const fill = new THREE.DirectionalLight(0xb8d4ff, 0.55); fill.position.set(12, 10, -14); s.add(fill);
 
-    this.composer = new EffectComposer(this.renderer);
+    this.composer = new EffectComposer(this.renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 }));
     this.composer.addPass(new RenderPass(s, this.camera));
     this.ao = new GTAOPass(s, this.camera, 1, 1);
     // run AO at a fraction of screen resolution (it's blurry by nature); the blend upsamples it
@@ -86,6 +87,7 @@ export class Renderer {
     const c = QUALITY[q];
     this.flags = { ao: c.ao, bloom: c.bloom, shadows: c.shadows, res: 1 };
     this.aoScale = c.aoScale;
+    for (const rt of [this.composer.renderTarget1, this.composer.renderTarget2]) if (rt.samples !== c.msaa) { rt.samples = c.msaa; rt.dispose(); }
     if (this.sun.shadow.mapSize.x !== c.shadow) {
       this.sun.shadow.mapSize.set(c.shadow, c.shadow);
       this.sun.shadow.map?.dispose(); (this.sun.shadow as any).map = null;

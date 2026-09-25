@@ -100,6 +100,8 @@ button { font-family: inherit; color: inherit; }
 #reload { height: 100%; background: var(--cream); transform-origin: left; transform: scaleX(0); }
 #wpn.reloading #wpn-name::after { content: " reloading"; font: 700 13px var(--ui); color: var(--muted); }
 
+#hints.fade { opacity: 0; transition: opacity 1s; }
+@media (max-width: 1400px) { #hints { display: none; } }
 #hints { position: absolute; right: calc(14px + var(--sa-r)); bottom: calc(14px + var(--sa-b)); padding: 6px 12px; font-size: 13px; font-weight: 600; line-height: 1.6; color: var(--muted); text-align: right; }
 kbd { display: inline-block; min-width: 20px; padding: 0 5px; border-radius: 5px; background: var(--cream); color: var(--ink); font: 700 12px var(--ui); text-align: center; box-shadow: 0 2px 0 #9aa3c7; }
 
@@ -130,6 +132,16 @@ body.touch .tbtn { display: grid; place-items: center; }
 body.touch #player { bottom: calc(10px + var(--sa-b)); }
 body.touch #wpn { left: auto; right: calc(14px + var(--sa-r)); transform: none; bottom: calc(10px + var(--sa-b)); min-width: 200px; }
 
+#ab { --p: 1; display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; font-weight: 700; font-size: 14px; padding: 3px 8px; border-radius: 9px;
+  background: linear-gradient(90deg, rgba(62,224,143,0.28) calc(var(--p) * 100%), rgba(42,53,97,0.9) 0); color: var(--muted); }
+#ab.ready { color: var(--cream); background: rgba(62,224,143,0.35); }
+#ab.active { background: rgba(255,138,42,0.55); color: var(--cream); }
+#ab em { font-style: normal; font-variant-numeric: tabular-nums; }
+#mode-tag { position: absolute; top: calc(62px + var(--sa-t)); left: 50%; transform: translateX(-50%); font: 400 13px var(--display); letter-spacing: .5px; color: var(--cream); text-shadow: 0 2px 0 var(--ink); }
+.oh-name.human { font-size: 14px; }
+.oh-fill.mate { background: linear-gradient(#bff0ff, #3fa9ff); }
+#btn-ab { right: calc(22px + var(--sa-r)); bottom: calc(232px + var(--sa-b)); background: radial-gradient(circle at 35% 35%, #ffc27a, var(--tangerine-deep)); color: var(--ink); }
+
 /* ---------- screens ---------- */
 .screen { position: fixed; inset: 0; z-index: 20; display: none; flex-direction: column; align-items: center; justify-content: safe center; gap: 0; overflow-y: auto; text-align: center;
   padding: calc(16px + var(--sa-t)) calc(16px + var(--sa-r)) calc(16px + var(--sa-b)) calc(16px + var(--sa-l));
@@ -151,6 +163,35 @@ body.touch #wpn { left: auto; right: calc(14px + var(--sa-r)); transform: none; 
 .stat { display: grid; grid-template-columns: 74px 1fr; align-items: center; gap: 8px; font-size: 11px; font-weight: 800; letter-spacing: .6px; color: var(--muted); margin-top: 3px; }
 .stat i { height: 8px; border-radius: 4px; background: var(--ink); overflow: hidden; display: block; }
 .stat b { display: block; height: 100%; background: var(--tangerine); border-radius: 4px; }
+#abilities { display: grid; grid-template-columns: repeat(4, 160px); gap: 10px; }
+.chip { text-align: left; background: var(--panel); border: 3px solid var(--ink); border-radius: 14px; padding: 8px 10px 9px; cursor: pointer; display: grid; gap: 2px; transition: transform .12s; box-shadow: 0 4px 0 rgba(0,0,0,0.3); }
+.chip:hover { transform: translateY(-2px); }
+.chip.on { border-color: var(--tangerine); box-shadow: 0 4px 0 rgba(0,0,0,0.3), 0 0 0 3px var(--ink); }
+.chip b { font: 400 17px var(--display); }
+.chip span { font-size: 12px; font-weight: 600; line-height: 1.25; color: var(--muted); }
+.chip em { font-style: normal; font-size: 11px; font-weight: 800; letter-spacing: .5px; color: var(--tangerine); }
+#play-row { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
+.big-btn.alt { background: linear-gradient(#bfe6ff, #5ab8ff 50%, #2f8cff); }
+.big-btn:disabled, .mode-btn:disabled { opacity: .45; cursor: default; transform: none; }
+.screen-title { margin: 0 0 14px; font: 400 min(9vw, 56px) var(--display); color: var(--cream);
+  text-shadow: -4px -4px 0 var(--ink), 4px -4px 0 var(--ink), -4px 4px 0 var(--ink), 4px 4px 0 var(--ink), 0 8px 0 var(--ink); }
+.lobby-card { width: min(520px, 100%); padding: 16px 18px; text-align: left; display: grid; gap: 12px; }
+.nick-row input { flex: 1; max-width: 240px; padding: 6px 10px; border-radius: 10px; border: 3px solid var(--ink); background: var(--cream); color: var(--ink); font: 700 16px var(--ui); }
+#lobby-peers { display: grid; gap: 6px; }
+.peer { display: grid; grid-template-columns: 16px 1fr auto; gap: 10px; align-items: center; background: var(--ink-2); border-radius: 10px; padding: 6px 12px; font-weight: 700; }
+.peer i { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--ink); }
+.peer em { font-style: normal; font-size: 12px; color: var(--mint); }
+.peer.me em { color: var(--muted); }
+#lobby-status { font-weight: 700; color: var(--cream); }
+#lobby-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.mode-btn { text-align: left; padding: 10px 12px; border-radius: 14px; border: 3px solid var(--ink); background: linear-gradient(#ffc27a, var(--tangerine)); color: var(--ink); cursor: pointer; display: grid; gap: 2px; box-shadow: 0 5px 0 var(--ink); }
+.mode-btn b { font: 400 22px var(--display); }
+.mode-btn span { font-size: 13px; font-weight: 700; line-height: 1.25; }
+.mode-btn:not(:disabled):active { transform: translateY(3px); box-shadow: 0 2px 0 var(--ink); }
+.tip { font-size: 13px; font-weight: 600; color: var(--muted); line-height: 1.5; }
+.steps { margin: 0; padding-left: 20px; }
+.steps b { color: var(--cream); }
+#result-sub { margin-top: 6px; font: 400 22px var(--display); color: var(--cream); }
 #row2 { display: flex; gap: 28px; flex-wrap: wrap; justify-content: center; }
 #swatches { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
 .swatch { width: 36px; height: 36px; border-radius: 50%; border: 3px solid var(--ink); cursor: pointer; box-shadow: inset -5px -5px 0 rgba(0,0,0,0.18), inset 4px 4px 0 rgba(255,255,255,0.35); transition: transform .1s; }
@@ -205,6 +246,9 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
 #loading.done { opacity: 0; pointer-events: none; }
 
 @media (max-width: 760px) {
+  #abilities { grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; gap: 8px; }
+  .chip span { display: none; }
+  #lobby-modes { grid-template-columns: 1fr; }
   #cards { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; width: 100%; }
   .card { padding: 8px 9px 10px; border-radius: 14px; border-width: 3px; }
   .card h2 { font-size: 17px; } .card p, .stat { display: none; } .card .key { top: 6px; right: 6px; font-size: 11px; }
@@ -218,6 +262,8 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
   #feed div { font-size: 12px; }
 }
 @media (max-height: 540px) {
+  #abilities { grid-template-columns: repeat(4, minmax(0, 1fr)); width: 100%; max-width: 720px; }
+  .chip span, .chip em { display: none; }
   #title { font-size: min(9vw, 54px); }
   #tagline { margin: 6px 0 4px; font-size: 14px; }
   .label { margin: 8px 0 5px; }
@@ -246,14 +292,17 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
     <div id="wpn-row"><div id="wpn-name">Shotgun</div><div id="nades" title="Grenades"></div></div>
     <div id="ammo"></div>
     <div id="reload-bar"><div id="reload"></div></div>
+    <div id="ab"><kbd>Space</kbd><span id="ab-name">Dash</span><em id="ab-cd">ready</em></div>
   </div>
-  <div class="pill" id="hints"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> roll &nbsp; <kbd>Click</kbd> shoot &nbsp; <kbd>Right-click</kbd> / <kbd>G</kbd> grenade<br><kbd>R</kbd> reload &nbsp; <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> weapon &nbsp; <kbd>Tab</kbd> scores &nbsp; <kbd>F</kbd> perf &nbsp; <kbd>P</kbd> pause</div>
+  <div id="mode-tag"></div>
+  <div class="pill" id="hints"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> roll &nbsp; <kbd>Click</kbd> shoot &nbsp; <kbd>Right-click</kbd> / <kbd>G</kbd> grenade &nbsp; <kbd>Space</kbd> ability<br><kbd>R</kbd> reload &nbsp; <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> weapon &nbsp; <kbd>Tab</kbd> scores &nbsp; <kbd>F</kbd> perf &nbsp; <kbd>P</kbd> pause</div>
   <div id="sticks">
     <div class="stick" id="stick-move"><i></i></div>
     <div class="stick" id="stick-aim"><i></i></div>
   </div>
   <button class="tbtn" id="btn-nade">NADE</button>
   <button class="tbtn" id="btn-reload">RELOAD</button>
+  <button class="tbtn" id="btn-ab">ABILITY</button>
 </div>
 <div id="cross"></div>
 
@@ -279,13 +328,38 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
   <div id="tagline">Eight toy balls, three guns, one arena. First to 20 pops wins.</div>
   <div class="label">PICK YOUR GUN</div>
   <div id="cards"></div>
+  <div class="label">SPACEBAR ABILITY</div>
+  <div id="abilities"></div>
   <div id="row2">
     <div><div class="label">YOUR COLOUR</div><div id="swatches"></div></div>
     <div><div class="label">BOTS</div><div class="seg" id="difficulty-seg"></div></div>
   </div>
-  <button class="big-btn" id="play">PLAY</button>
+  <div id="play-row">
+    <button class="big-btn" id="play">PLAY SOLO</button>
+    <button class="big-btn alt" id="play-online">PLAY WITH A FRIEND</button>
+  </div>
   <div id="best"></div>
-  <div id="menu-hint"><span class="for-keys"><kbd>WASD</kbd> roll &middot; <kbd>Mouse</kbd> aim &middot; <kbd>Click</kbd> shoot &middot; <kbd>Right-click</kbd> grenade &middot; <kbd>Enter</kbd> to start</span><span class="for-touch">Left thumb rolls &middot; right thumb aims and fires</span></div>
+  <div id="menu-hint"><span class="for-keys"><kbd>WASD</kbd> roll &middot; <kbd>Mouse</kbd> aim &middot; <kbd>Click</kbd> shoot &middot; <kbd>Right-click</kbd> grenade &middot; <kbd>Space</kbd> ability</span><span class="for-touch">Left thumb rolls &middot; right thumb aims and fires &middot; buttons for grenade and ability</span></div>
+</div>
+
+<div id="lobby" class="screen">
+  <h1 class="screen-title">PLAY WITH A FRIEND</h1>
+  <div class="lobby-card pill">
+    <div class="row nick-row"><label for="nick">Your name</label><input id="nick" type="text" maxlength="16" placeholder="Player" autocomplete="off"></div>
+    <div id="lobby-peers"></div>
+    <div id="lobby-status"></div>
+    <div id="lobby-modes">
+      <button class="mode-btn" id="lobby-duel"><b>1v1</b><span>You against your friend. First to 10 pops.</span></button>
+      <button class="mode-btn" id="lobby-coop"><b>2 vs bots</b><span>Team up against 5 bots. First team to 30.</span></button>
+    </div>
+    <div id="lobby-loadout" class="tip"></div>
+    <ol class="tip steps">
+      <li>Open <b>Share</b> on this page and invite your friend by email.</li>
+      <li>They sign in to claude.ai, open the link, and press <b>Play with a friend</b>.</li>
+      <li>When their name shows up here, either of you picks a mode.</li>
+    </ol>
+  </div>
+  <button class="ghost-btn" id="lobby-back">BACK</button>
 </div>
 
 <div id="pause" class="screen">
@@ -300,6 +374,7 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
 
 <div id="result" class="screen">
   <h1 id="result-title">WINNER!</h1>
+  <div id="result-sub" class="shadowtext"></div>
   <table class="board"><thead><tr><th>#</th><th>BALL</th><th>POPS</th><th>POPPED</th></tr></thead><tbody id="result-table"></tbody></table>
   <button class="big-btn" id="again">PLAY AGAIN</button>
   <button class="ghost-btn" id="to-menu">CHANGE LOADOUT</button>

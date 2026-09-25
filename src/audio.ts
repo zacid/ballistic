@@ -88,6 +88,12 @@ export class Audio {
       case 'go': this.tone('square', 990, 990, 0.25, 0.2); this.tone('square', 1320, 1320, 0.25, 0.12, 0.02); break;
       case 'win': [523, 659, 784, 1046].forEach((f, i) => this.tone('square', f, f, 0.22, 0.14, i * 0.12)); break;
       case 'lose': [392, 330, 262, 196].forEach((f, i) => this.tone('triangle', f, f * 0.98, 0.3, 0.22, i * 0.16)); break;
+      case 'dash': this.noise('bandpass', 500, 3000, 0.22, 0.45 * v, 1.2); this.tone('sine', 300, 700, 0.18, 0.2 * v); break;
+      case 'spikes': this.tone('sawtooth', 180, 520, 0.12, 0.15 * v); this.noise('highpass', 3000, 6000, 0.12, 0.25 * v); break;
+      case 'stab': this.noise('bandpass', 1800, 500, 0.12, 0.7 * v, 1.5); this.tone('square', 300, 90, 0.12, 0.25 * v); break;
+      case 'bubble': this.tone('sine', 260, 780, 0.3, 0.3 * v); this.tone('sine', 390, 1170, 0.3, 0.15 * v, 0.03); break;
+      case 'wave': this.noise('lowpass', 1400, 80, 0.45, 1 * v); this.tone('sine', 90, 40, 0.4, 0.8 * v); this.noise('bandpass', 400, 2400, 0.25, 0.3 * v, 0.8); break;
+      case 'ready': this.tone('triangle', 880, 880, 0.08, 0.15); this.tone('triangle', 1320, 1320, 0.1, 0.12, 0.07); break;
       case 'click': this.tone('triangle', 900, 700, 0.05, 0.2); break;
     }
   }

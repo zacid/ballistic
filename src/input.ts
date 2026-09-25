@@ -9,6 +9,7 @@ export class Input {
   keys = new Set<string>();
   mouse = new THREE.Vector2(0, 0);
   mouseDown = false;
+  abilityQueued = false;
   touch = false;
   private ray = new THREE.Raycaster();
   private plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.55);
@@ -38,6 +39,7 @@ export class Input {
     canvas.addEventListener('touchend', e => this.touchEnd(e));
     canvas.addEventListener('touchcancel', e => this.touchEnd(e));
     $('btn-nade').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); this.nade(); });
+    $('btn-ab').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); this.abilityQueued = true; });
     $('btn-reload').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); if (this.g.player?.alive) this.g.reload(this.g.player); });
   }
 
@@ -49,19 +51,20 @@ export class Input {
 
   private key(e: KeyboardEvent, down: boolean) {
     const k = e.key.toLowerCase();
-    if ((e.target as HTMLElement)?.tagName === 'INPUT' && k !== 'escape') return;
+    if ((e.target as HTMLElement)?.tagName === 'INPUT' && (e.target as HTMLInputElement).type === 'text' && k !== 'escape') return;
     if (k === 'tab') { e.preventDefault(); this.g.hud.scoreboard(down && this.g.state !== 'menu'); return; }
     if (down && !e.repeat) {
       if (k === 'p' || k === 'escape') { if (this.g.state === 'playing' || this.g.state === 'countdown') this.g.hud.togglePause(); }
       if (k === 'f') this.g.hud.setPerf(!this.g.saved.perf);
       if (k === 'm') { this.g.setMuted(!this.g.saved.muted); this.g.hud.syncSettings(); this.g.hud.toast(this.g.saved.muted ? 'Sound off' : 'Sound on'); }
       if (this.g.state === 'playing' && !this.g.paused) {
-        if (k === 'g' || k === 'q' || k === ' ') { e.preventDefault(); this.nade(); }
+        if (k === 'g' || k === 'q') this.nade();
+        if (k === ' ' || k === 'shift') { e.preventDefault(); this.abilityQueued = true; }
         if (k === 'r' && this.g.player.alive) this.g.reload(this.g.player);
         const map: Record<string, WeaponId> = { '1': 'shotgun', '2': 'chaingun', '3': 'rocket' };
         if (map[k]) this.g.hud.pickWeapon(map[k]);
       }
-      if (k === 'enter' && (this.g.state === 'menu' || this.g.state === 'over')) this.g.start();
+      if (k === 'enter' && (this.g.state === 'menu' || (this.g.state === 'over' && !this.g.online))) this.g.start();
     }
     if (down) this.keys.add(k); else this.keys.delete(k);
   }
@@ -102,6 +105,7 @@ export class Input {
     const dx = a.x - b.x, dz = a.z - b.z, l = Math.hypot(dx, dz);
     if (l > 0.2) { b.aimX = dx / l; b.aimZ = dz / l; }
     b.fire = this.touch ? this.touchAim.active : this.mouseDown;
+    if (this.abilityQueued) { b.wantAbility = true; this.abilityQueued = false; }
     // reloading an empty clip automatically; tapping fire while reloading does nothing
     if (b.fire && b.ammo <= 0 && b.reloadT <= 0) g.reload(b);
     void WEAPONS;
