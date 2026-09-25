@@ -102,4 +102,4 @@ export const DIFFICULTY: Record<Difficulty, { react: number; aimErr: number; lea
 };
 
 /** Where the hosted (GitHub Pages) build lives; shown in the claude.ai artifact's lobby. */
-export const ONLINE_URL = '';
+export const ONLINE_URL = 'https://zacid.github.io/ballistic/';
