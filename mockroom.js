@@ -21,7 +21,7 @@
     if (m.type === 'hello') { bc.postMessage({ type: 'p', peer: me, presence: mine.presence }); return; }
     if (m.type === 'bye') { const p = peers.get(m.peer); if (p) { peers.delete(m.peer); pendingLeft.push(p); sched(); } return; }
     const existed = peers.has(m.peer);
-    const p = { peer: m.peer, isMe: false, sameTab: false, kind: 'viewer', guest: false, by: null, presence: Object.freeze(m.presence), updatedAt: Date.now() };
+    const p = { peer: m.peer, isMe: true, sameTab: false, kind: 'viewer', guest: false, by: null, presence: Object.freeze(m.presence), updatedAt: Date.now() };
     peers.set(m.peer, p);
     (existed ? pendingUpdated : pendingJoined).push(p); sched();
   }, LAT + Math.random() * 20);

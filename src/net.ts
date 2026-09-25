@@ -69,7 +69,8 @@ export class Net {
   changed(fn: Listener) { this.onChange.push(fn); }
   private emitChange() { for (const f of this.onChange) f(); }
 
-  others() { return this.peers.filter(p => !p.isMe && p.presence && p.presence.lob); }
+  // sameTab, not isMe: your own second tab is isMe too, and should count as a player
+  others() { return this.peers.filter(p => !p.sameTab && (p as any).kind !== 'agent' && p.presence && p.presence.lob); }
 
   set(patch: Record<string, unknown>) {
     if (!this.room) return;
