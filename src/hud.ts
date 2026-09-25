@@ -22,6 +22,7 @@ export class Hud {
   private boardT = 0;
   private deathKiller = '';
   private abWasReady = true;
+  private lobbyT = 0;
 
   constructor(private g: Game) {
     this.buildMenu();
@@ -148,7 +149,7 @@ export class Hud {
     const diag = net.status === 'ready'
       ? `Room ${net.linked ? 'connected' : 'connecting'} | ${onPage} other ${onPage === 1 ? 'viewer' : 'viewers'} on this page | ${friends.length} in the lobby${net.error ? ' | ' + net.error : ''}`
       : `Room ${net.status}${net.error ? ' | ' + net.error : ''}`;
-    $('lobby-diag').textContent = diag;
+    $('lobby-diag').textContent = diag + (net.status === 'ready' ? ` | ${net.debug()}` : '');
     $('lobby-loadout').textContent = `Your loadout: ${WEAPONS[this.g.saved.weapon].name} + ${ABILITIES[this.g.saved.ability].name}. Change it from the main menu.`;
   }
 
@@ -284,6 +285,7 @@ export class Hud {
     const g = this.g;
     if (this.toastT > 0) { this.toastT -= dt; if (this.toastT <= 0) $('toast').classList.remove('show'); }
     this.updatePerf(dt);
+    if (g.state === 'lobby') { this.lobbyT -= dt; if (this.lobbyT <= 0) { this.lobbyT = 0.5; this.renderLobby(); } }
     if (g.state === 'menu' || g.state === 'lobby') return;
     if (this.bannerT > 0) { this.bannerT -= dt; if (this.bannerT <= 0) $('banner').classList.remove('show'); }
     const p = g.player;

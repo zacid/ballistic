@@ -50,12 +50,13 @@ export class Net {
     if (this.status === 'ready' || this.status === 'connecting') return this.status;
     this.status = 'connecting'; this.emitChange();
     try {
-      const use = (window as any).claude?.use;
-      this.room = use ? await use('room') : null;
+      const c = (window as any).claude;
+      this.room = c?.use ? await c.use('room') : null;
     } catch { this.room = null; }
     if (!this.room) { this.status = 'unavailable'; this.error = (window as any).claude?.use ? 'room_null' : 'no_runtime'; this.emitChange(); return this.status; }
     try { this.room.onConnection((c: boolean) => { this.linked = c; this.emitChange(); }, (e: any) => { this.error = e.code; this.emitChange(); }); } catch { /* older runtime */ }
     this.room.onPeers((ch: any) => {
+      this.deliveries++;
       this.peers = ch.peers as Peerish[];
       const mine = this.peers.find(p => p.sameTab); if (mine) this.me = mine.peer;
       for (const p of ch.left) { this.seen.delete(p.peer); this.offsets.delete(p.peer); this.onLeft(p.peer); }
@@ -63,7 +64,33 @@ export class Net {
       this.emitChange();
     }, (e: any) => { this.error = e.code; if (e.code !== 'upstream_error') { this.status = 'unavailable'; this.emitChange(); } });
     this.status = 'ready'; this.emitChange();
+    // Belt and braces: also read the synchronous peers() snapshot a few times a second,
+    // in case change deliveries are sparse.
+    setInterval(() => this.poll(), 250);
     return this.status;
+  }
+
+  deliveries = 0;
+  private lastSeenAt = new Map<string, number>();
+  private poll() {
+    let list: Peerish[] = [];
+    try { list = this.room.peers() as Peerish[]; } catch { return; }
+    if (!Array.isArray(list)) return;
+    const before = this.peers.length;
+    if (list.length >= this.peers.length || list !== this.peers) this.peers = list;
+    const mine = list.find(p => p.sameTab); if (mine) this.me = mine.peer;
+    let changed = before !== list.length;
+    for (const p of list) {
+      if (p.sameTab) continue;
+      if (this.lastSeenAt.get(p.peer) !== p.updatedAt) { this.lastSeenAt.set(p.peer, p.updatedAt); this.receive(p); changed = true; }
+    }
+    if (changed) this.emitChange();
+  }
+
+  debug() {
+    let raw = -1; try { raw = this.room?.peers?.().length ?? -1; } catch { /* */ }
+    let conn = '?'; try { conn = String(this.room?.connected?.()); } catch { /* */ }
+    return `peers() ${raw} | updates ${this.deliveries} | me ${this.me ? this.me.slice(0, 6) : 'unset'} | connected() ${conn}`;
   }
 
   changed(fn: Listener) { this.onChange.push(fn); }
