@@ -38,6 +38,9 @@ export class PeerRoom {
   private open = false;
   private pending: Change = { peers: [], joined: [], left: [], updated: [] };
   private scheduled = false;
+  /** Connection diagnostics for the lobby: ICE state and which candidate types each side found. */
+  ice = { state: 'idle', local: '', remote: '', path: '' };
+  private dialT = 0;
 
   constructor(role: 'host' | 'guest', code: string) {
     this.role = role; this.code = code;
@@ -46,6 +49,7 @@ export class PeerRoom {
     const opts = (window as any).__PEER_OPTS || {};
     this.peer = role === 'host' ? new Peer(PREFIX + code, opts) : new Peer(opts);
     this.peer.on('open', id => {
+      this.brokerOk = true;
       this.me = { ...this.me, peer: id };
       if (role === 'guest') this.dial();
       else this.setOpen(true);
@@ -63,19 +67,53 @@ export class PeerRoom {
       for (const h of this.errHandlers) h({ code, message: String(e?.message || code) });
       this.setOpen(false);
     });
-    this.peer.on('disconnected', () => { if (!this.peer.destroyed) this.peer.reconnect(); });
+    this.peer.on('disconnected', () => { this.brokerOk = false; if (!this.peer.destroyed) this.peer.reconnect(); });
     setInterval(() => this.keepalive(), KEEPALIVE_MS);
   }
 
+  brokerOk = false;
   get link() { return `${location.origin}${location.pathname}#${this.code}`; }
 
   private dial() {
     const c = this.peer.connect(PREFIX + this.code, { serialization: 'json', reliable: false });
     this.wire(c);
+    this.dialT = window.setTimeout(() => {
+      if (this.conns.size) return;
+      this.error = 'ice-timeout';
+      for (const h of this.errHandlers) h({ code: 'ice-timeout', message: 'Could not open a direct connection.' });
+    }, 15000);
+  }
+
+  /** Poll the underlying RTCPeerConnection so we can see where connecting gets stuck. */
+  private watch(c: DataConnection) {
+    const tick = async () => {
+      const pc: RTCPeerConnection | undefined = (c as any).peerConnection;
+      if (!pc) { this.ice.state = 'signalling'; return; }
+      this.ice.state = `${pc.iceGatheringState === 'complete' ? '' : 'gathering, '}${pc.iceConnectionState}`;
+      try {
+        const stats = await pc.getStats();
+        const loc: Record<string, number> = {}, rem: Record<string, number> = {};
+        let pair = '';
+        stats.forEach((r: any) => {
+          if (r.type === 'local-candidate') loc[r.candidateType] = (loc[r.candidateType] || 0) + 1;
+          if (r.type === 'remote-candidate') rem[r.candidateType] = (rem[r.candidateType] || 0) + 1;
+          if (r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded') {
+            const l = stats.get(r.localCandidateId), rr = stats.get(r.remoteCandidateId);
+            pair = `${l?.candidateType}/${l?.protocol} to ${rr?.candidateType}, ${Math.round((r.currentRoundTripTime || 0) * 1000)}ms`;
+          }
+        });
+        const fmt = (o: Record<string, number>) => Object.entries(o).map(([k, v]) => `${k}${v}`).join(' ') || 'none';
+        this.ice.local = fmt(loc); this.ice.remote = fmt(rem); this.ice.path = pair;
+      } catch { /* stats unavailable */ }
+    };
+    const id = window.setInterval(() => { if (!c.open && this.ice.state.includes('failed')) { tick(); } tick(); }, 700);
+    c.on('close', () => clearInterval(id));
   }
 
   private wire(c: DataConnection) {
+    this.watch(c);
     c.on('open', () => {
+      clearTimeout(this.dialT); if (this.error === 'ice-timeout') this.error = '';
       this.conns.set(c.peer, c); this.lastHeard.set(c.peer, Date.now());
       this.setOpen(true);
       this.sendNow();

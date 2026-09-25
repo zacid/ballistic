@@ -154,6 +154,7 @@ export class Hud {
     else if (err === 'peer-unavailable') msg = 'That invite has expired, or your friend closed the game. Ask them for a new link.';
     else if (err === 'room-full') msg = 'That game already has two players.';
     else if (err === 'network' || err === 'server-error' || err === 'socket-error' || err === 'socket-closed') msg = "Couldn't reach the matchmaking server. Check your connection and try again.";
+    else if (err === 'ice-timeout') msg = "Couldn't open a direct connection between your two networks. The details below show where it got stuck.";
     else if (err === 'browser-incompatible') msg = "This browser can't make direct connections (WebRTC). Try Chrome, Edge, Firefox or Safari.";
     else if (err && err !== 'unavailable-id') msg = `Connection problem (${esc(err)}). Try again.`;
     else if (friends.length) msg = `${esc(fname)} is here. Either of you can pick a mode.`;
@@ -167,7 +168,11 @@ export class Hud {
     if (room && room.role === 'host') ($('invite-link') as HTMLInputElement).value = room.link;
     $('lobby-steps').hidden = g.inArtifact || room?.role === 'guest' || friends.length > 0;
     for (const m of ['duel', 'coop'] as ModeId[]) ($('lobby-' + m) as HTMLButtonElement).disabled = !friends.length;
-    $('lobby-diag').textContent = room ? `${room.role} | code ${room.code} | ${net.linked ? 'connected' : 'not connected'} | ${friends.length} friend${friends.length === 1 ? '' : 's'} in lobby` : '';
+    $('lobby-diag').textContent = room
+      ? `${room.role} | code ${room.code} | broker ${room.brokerOk ? 'ok' : 'no'} | ${net.linked ? 'connected' : 'not connected'} | ${friends.length} in lobby`
+        + (room.ice.state !== 'idle' ? ` | ICE ${room.ice.state} | mine ${room.ice.local || '-'} | theirs ${room.ice.remote || '-'}${room.ice.path ? ' | via ' + room.ice.path : ''}` : '')
+        + (err ? ` | error ${err}` : '')
+      : '';
     $('lobby-loadout').textContent = `Your loadout: ${WEAPONS[g.saved.weapon].name} + ${ABILITIES[g.saved.ability].name}. Change it from the main menu.`;
   }
 
