@@ -31,6 +31,8 @@ type Listener = () => void;
 export class Net {
   room: any = null;
   status: 'off' | 'connecting' | 'ready' | 'unavailable' = 'off';
+  error = '';
+  linked = false;   // room connection currently up
   me = '';
   peers: Peerish[] = [];
   private seq = 0;
@@ -51,14 +53,15 @@ export class Net {
       const use = (window as any).claude?.use;
       this.room = use ? await use('room') : null;
     } catch { this.room = null; }
-    if (!this.room) { this.status = 'unavailable'; this.emitChange(); return this.status; }
+    if (!this.room) { this.status = 'unavailable'; this.error = (window as any).claude?.use ? 'room_null' : 'no_runtime'; this.emitChange(); return this.status; }
+    try { this.room.onConnection((c: boolean) => { this.linked = c; this.emitChange(); }, (e: any) => { this.error = e.code; this.emitChange(); }); } catch { /* older runtime */ }
     this.room.onPeers((ch: any) => {
       this.peers = ch.peers as Peerish[];
       const mine = this.peers.find(p => p.sameTab); if (mine) this.me = mine.peer;
       for (const p of ch.left) { this.seen.delete(p.peer); this.offsets.delete(p.peer); this.onLeft(p.peer); }
       for (const p of [...ch.joined, ...ch.updated]) if (!p.sameTab) this.receive(p);
       this.emitChange();
-    }, (e: any) => { if (e.code !== 'upstream_error') { this.status = 'unavailable'; this.emitChange(); } });
+    }, (e: any) => { this.error = e.code; if (e.code !== 'upstream_error') { this.status = 'unavailable'; this.emitChange(); } });
     this.status = 'ready'; this.emitChange();
     return this.status;
   }
@@ -71,7 +74,7 @@ export class Net {
   set(patch: Record<string, unknown>) {
     if (!this.room) return;
     Object.assign(this.presenceBase, patch);
-    this.room.presence(patch).catch(() => {});
+    this.room.presence(patch).catch((e: any) => { this.error = e?.code || 'presence_failed'; this.emitChange(); });
   }
 
   send(e: NetEvent) {

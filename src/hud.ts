@@ -143,6 +143,12 @@ export class Hud {
     else if (!friends.length) st.textContent = 'Waiting for your friend to open this page and press Play with a friend.';
     else st.textContent = `${String(friends[0].presence.n || 'Your friend')} is here. Either of you can start.`;
     for (const m of ['duel', 'coop'] as ModeId[]) ($('lobby-' + m) as HTMLButtonElement).disabled = !ready || !friends.length;
+    // connection diagnostics, so we can tell "not admitted" apart from "not in the lobby yet"
+    const onPage = net.peers.filter(p => !p.isMe).length;
+    const diag = net.status === 'ready'
+      ? `Room ${net.linked ? 'connected' : 'connecting'} | ${onPage} other ${onPage === 1 ? 'viewer' : 'viewers'} on this page | ${friends.length} in the lobby${net.error ? ' | ' + net.error : ''}`
+      : `Room ${net.status}${net.error ? ' | ' + net.error : ''}`;
+    $('lobby-diag').textContent = diag;
     $('lobby-loadout').textContent = `Your loadout: ${WEAPONS[this.g.saved.weapon].name} + ${ABILITIES[this.g.saved.ability].name}. Change it from the main menu.`;
   }
 
