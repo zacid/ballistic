@@ -8,6 +8,7 @@ import { Renderer, Quality } from './render';
 import { Hud } from './hud';
 import { Input } from './input';
 import { thinkBot } from './bots';
+import { Stats } from './stats';
 
 interface Shot { owner: number; x: number; z: number; vx: number; vz: number; life: number; w: WeaponId; mesh?: THREE.Object3D; trailT: number }
 interface Nade { owner: number; x: number; y: number; z: number; vx: number; vy: number; vz: number; fuse: number; mesh: THREE.Mesh; bounces: number }
@@ -16,14 +17,15 @@ interface Pickup { kind: PickKind; x: number; z: number; t: number; mesh: THREE.
 
 const RESPAWN: Record<PickKind, number> = { health: 11, nades: 13, mega: 30 };
 const G = 24;
+const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _p = new THREE.Vector3(), _c = new THREE.Color(), _up = new THREE.Vector3(0, 1, 0);
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 const STORE = 'ballistic.v1';
-export interface Saved { weapon: WeaponId; color: number; difficulty: Difficulty; quality: Quality | 'auto'; muted: boolean; best?: number }
+export interface Saved { weapon: WeaponId; color: number; difficulty: Difficulty; quality: Quality | 'auto'; muted: boolean; best?: number; perf?: boolean }
 function load(): Saved {
   let s: Partial<Saved> = {};
   try { s = JSON.parse(localStorage.getItem(STORE) || '{}'); } catch { s = {}; }
-  return { weapon: s.weapon ?? 'shotgun', color: s.color ?? 0, difficulty: s.difficulty ?? 'normal', quality: s.quality ?? 'auto', muted: !!s.muted, best: s.best };
+  return { weapon: s.weapon ?? 'shotgun', color: s.color ?? 0, difficulty: s.difficulty ?? 'normal', quality: s.quality ?? 'auto', muted: !!s.muted, best: s.best, perf: s.perf };
 }
 
 export class Game {
@@ -55,6 +57,8 @@ export class Game {
   private nadeMat = new THREE.MeshStandardMaterial({ color: 0x3b8f4a, roughness: 0.5 });
   private aimPoint = new THREE.Vector3();
   seed = (Math.random() * 1e9) | 0;
+  stats = new Stats();
+  tSim = 0; tRender = 0; tHud = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.r = new Renderer(canvas);
@@ -431,12 +435,15 @@ export class Game {
 
   // ---------- frame ----------
   frame(now: number) {
-    const raw = Math.min(0.1, (now - this.last) / 1000); this.last = now;
+    const real = (now - this.last) / 1000;
+    const raw = Math.min(0.1, real); this.last = now;
     this.tick(raw);
+    this.stats.frame(real, this.tSim, this.tRender, this.tHud);
     requestAnimationFrame(this.frame);
   }
 
   tick(raw: number, draw = true) {
+    const t0 = performance.now();
     if (!this.paused && this.state !== 'menu') {
       this.acc += raw;
       const STEP = 1 / 120; let n = 0;
@@ -450,15 +457,19 @@ export class Game {
     this.fx.update(dt);
     this.drawTracers();
     for (const p of this.pickups) { const item = p.mesh.userData.item as THREE.Object3D; if (this.state === 'menu') { item.rotation.y += raw * 2; item.visible = true; } }
-    this.arena.flushPaint();
+    this.arena.flushPaint(this.r.renderer, raw);
     if (this.state !== 'menu' && this.player) {
       const p = this.player;
       this.input.aimWorld(this.aimPoint);
       this.r.follow(p.x, p.z, this.aimPoint.x, this.aimPoint.z, raw);
       this.audio.listener.x = p.x; this.audio.listener.z = p.z;
     }
+    const t1 = performance.now();
     if (draw) this.r.render();
+    const t2 = performance.now();
     this.hud.update(raw);
+    const t3 = performance.now();
+    this.tSim = t1 - t0; this.tRender = t2 - t1; this.tHud = t3 - t2;
     this.adaptQuality(raw);
   }
 
@@ -470,13 +481,13 @@ export class Game {
   }
 
   private drawTracers() {
-    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3(), c = new THREE.Color();
+    const m = _m, q = _q, s = _s, p = _p, c = _c;
     let n = 0;
     for (const sh of this.shots) {
       if (sh.mesh || n >= 400) continue;
       const w = WEAPONS[sh.w]; const sp = Math.hypot(sh.vx, sh.vz);
       const len = Math.min(1.4, sp * 0.03);
-      q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan2(sh.vx, sh.vz) + Math.PI);
+      q.setFromAxisAngle(_up, Math.atan2(sh.vx, sh.vz) + Math.PI);
       s.set(1, 1, len); p.set(sh.x, 0.55, sh.z);
       m.compose(p, q, s); this.tracer.setMatrixAt(n, m); this.tracer.setColorAt(n, c.set(w.color).multiplyScalar(3)); n++;
     }
@@ -489,7 +500,8 @@ export class Game {
     if (p.t < 4) return;
     const fps = p.frames / p.t; p.t = 0; p.frames = 0;
     if (fps < 45) {
-      const next = this.r.quality === 'high' ? 'medium' : this.r.quality === 'medium' ? 'low' : null;
+      const order: Quality[] = ['ultra', 'high', 'medium', 'low'];
+      const next = order[order.indexOf(this.r.quality) + 1] ?? null;
       if (next) { this.r.setQuality(next); this.hud.toast(`Running at ${Math.round(fps)} fps, switched to ${next} quality`); }
     }
   }

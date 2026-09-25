@@ -3,6 +3,7 @@ import type { Game } from './game';
 import type { Babo } from './babo';
 import { BALL, COLORS, DIFFICULTY, Difficulty, GRENADE, MATCH, WEAPONS, WeaponId } from './config';
 import { QUALITY, Quality } from './render';
+import type { RenderFlags } from './render';
 
 const $ = (id: string) => document.getElementById(id)!;
 const hex = (n: number) => '#' + n.toString(16).padStart(6, '0');
@@ -31,7 +32,7 @@ export class Hud {
     $('gear').addEventListener('click', () => { $('settings').classList.toggle('open'); this.syncSettings(); });
     $('tog-mute').addEventListener('change', e => this.g.setMuted((e.target as HTMLInputElement).checked));
     const qs = $('quality-seg');
-    for (const q of ['auto', 'high', 'medium', 'low'] as const) {
+    for (const q of ['auto', 'ultra', 'high', 'medium', 'low'] as const) {
       const b = document.createElement('button'); b.textContent = q === 'auto' ? 'Auto' : QUALITY[q].label; b.dataset.q = q;
       b.addEventListener('click', () => {
         this.g.saved.quality = q; this.g.save();
@@ -40,6 +41,18 @@ export class Hud {
       qs.appendChild(b);
     }
     if (this.g.saved.quality !== 'auto') this.g.r.setQuality(this.g.saved.quality);
+    // debug switches that override the preset until the next preset change
+    for (const k of ['ao', 'bloom', 'shadows'] as const) {
+      $('dbg-' + k).addEventListener('change', e => { this.g.r.flags[k] = (e.target as HTMLInputElement).checked; this.g.r.applyFlags(); this.syncSettings(); });
+    }
+    const rs = $('res-seg');
+    for (const v of [0.5, 0.75, 1]) {
+      const b = document.createElement('button'); b.textContent = `${Math.round(v * 100)}%`; b.dataset.v = String(v);
+      b.addEventListener('click', () => { this.g.r.flags.res = v; this.g.r.applyFlags(); this.syncSettings(); });
+      rs.appendChild(b);
+    }
+    $('tog-perf').addEventListener('change', e => this.setPerf((e.target as HTMLInputElement).checked));
+    this.setPerf(this.g.saved.perf !== false);
     this.syncSettings();
     $('menu').classList.add('open');
   }
@@ -74,8 +87,17 @@ export class Hud {
     $('best').textContent = this.g.saved.best ? `Best finish: ${ordinal(this.g.saved.best)}` : '';
   }
 
+  setPerf(on: boolean) {
+    this.g.saved.perf = on; this.g.save();
+    $('perf').classList.toggle('show', on); document.body.classList.toggle('perf', on);
+    ($('tog-perf') as HTMLInputElement).checked = on;
+  }
+
   syncSettings() {
     for (const b of Array.from($('quality-seg').children) as HTMLElement[]) b.classList.toggle('on', b.dataset.q === this.g.saved.quality);
+    const f: RenderFlags = this.g.r.flags;
+    ($('dbg-ao') as HTMLInputElement).checked = f.ao; ($('dbg-bloom') as HTMLInputElement).checked = f.bloom; ($('dbg-shadows') as HTMLInputElement).checked = f.shadows;
+    for (const b of Array.from($('res-seg').children) as HTMLElement[]) b.classList.toggle('on', Number(b.dataset.v) === f.res);
     ($('tog-mute') as HTMLInputElement).checked = this.g.saved.muted;
   }
 
@@ -170,9 +192,33 @@ export class Hud {
   }
 
   // ---------- per frame ----------
+  private perfT = 0;
+  private lastUploads = 0;
+  private updatePerf(dt: number) {
+    if (!this.g.saved.perf) return;
+    const g = this.g, st = g.stats;
+    st.draw($('perf-graph') as HTMLCanvasElement);
+    this.perfT -= dt; if (this.perfT > 0) return;
+    this.perfT = 0.25;
+    const s = st.summary(), r = g.r, f = r.flags, i = r.info;
+    const up = g.arena.uploads - this.lastUploads; this.lastUploads = g.arena.uploads;
+    const col = (fps: number) => fps >= 55 ? 'good' : fps >= 30 ? 'warn' : 'bad';
+    const flags = [f.ao ? (QUALITY[r.quality].aoScale < 1 ? 'AO&frac12;' : 'AO') : null, f.bloom ? 'Bloom' : null, f.shadows ? 'Shadows' : null].filter(Boolean).join(' ') || 'no effects';
+    $('perf-text').innerHTML =
+      `<div class="big ${col(s.fps)}">${Math.round(s.fps)} <small>fps</small></div>` +
+      `<div>1% low <b class="${col(s.low1)}">${Math.round(s.low1)}</b> &middot; worst ${s.worst.toFixed(0)} ms</div>` +
+      `<div>frame ${s.avg.toFixed(1)} ms</div>` +
+      `<div>CPU sim ${st.sim.toFixed(1)} &middot; draw ${st.render.toFixed(1)} &middot; ui ${st.hud.toFixed(1)}</div>` +
+      `<div>GPU ${r.gpuMs >= 0 ? r.gpuMs.toFixed(1) + ' ms' : 'n/a in this browser'}</div>` +
+      `<div>${i.calls} draws &middot; ${(i.triangles / 1000).toFixed(0)}k tris</div>` +
+      `<div>${i.w}&times;${i.h} @${i.pr.toFixed(2)}x &middot; ${QUALITY[r.quality].label}${f.res < 1 ? ' ' + Math.round(f.res * 100) + '%' : ''}</div>` +
+      `<div>${flags} &middot; paint ${up * 4}/s</div>`;
+  }
+
   update(dt: number) {
     const g = this.g;
     if (this.toastT > 0) { this.toastT -= dt; if (this.toastT <= 0) $('toast').classList.remove('show'); }
+    this.updatePerf(dt);
     if (g.state === 'menu') return;
     if (this.bannerT > 0) { this.bannerT -= dt; if (this.bannerT <= 0) $('banner').classList.remove('show'); }
     const p = g.player;

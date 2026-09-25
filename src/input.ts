@@ -53,6 +53,7 @@ export class Input {
     if (k === 'tab') { e.preventDefault(); this.g.hud.scoreboard(down && this.g.state !== 'menu'); return; }
     if (down && !e.repeat) {
       if (k === 'p' || k === 'escape') { if (this.g.state === 'playing' || this.g.state === 'countdown') this.g.hud.togglePause(); }
+      if (k === 'f') this.g.hud.setPerf(!this.g.saved.perf);
       if (k === 'm') { this.g.setMuted(!this.g.saved.muted); this.g.hud.syncSettings(); this.g.hud.toast(this.g.saved.muted ? 'Sound off' : 'Sound on'); }
       if (this.g.state === 'playing' && !this.g.paused) {
         if (k === 'g' || k === 'q' || k === ' ') { e.preventDefault(); this.nade(); }

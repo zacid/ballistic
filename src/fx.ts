@@ -30,7 +30,7 @@ export class Fx {
     this.glowMesh.frustumCulled = false; this.glowMesh.count = 0;
     this.glowMesh.setColorAt(0, _c.set(0xffffff));
     this.group.add(this.bitMesh, this.puffMesh, this.glowMesh);
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 3; i++) {
       const l = new THREE.PointLight(0xffaa55, 0, 9, 1.6); // always visible: toggling would recompile shaders
       this.group.add(l); this.lights.push({ l, life: 0, max: 1, power: 0 });
     }

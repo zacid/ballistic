@@ -81,7 +81,7 @@ export interface Babo {
   hurtT: number;
   spawnShield: number;
   // visuals
-  root: THREE.Group; ball: THREE.Mesh; gun: THREE.Group; ring: THREE.Mesh; mat: THREE.MeshPhysicalMaterial;
+  root: THREE.Group; ball: THREE.Mesh; gun: THREE.Group; ring: THREE.Mesh; mat: THREE.MeshStandardMaterial;
   recoilZ: number;
   // bot brain (opaque to the core)
   brain?: any;
@@ -89,7 +89,7 @@ export interface Babo {
 
 export function makeBabo(id: number, name: string, color: number, weapon: WeaponId, isPlayer: boolean): Babo {
   const root = new THREE.Group();
-  const mat = new THREE.MeshPhysicalMaterial({ map: skin(color), roughness: 0.28, clearcoat: 0.8, clearcoatRoughness: 0.2, emissive: 0xffffff, emissiveIntensity: 0 });
+  const mat = new THREE.MeshStandardMaterial({ map: skin(color), roughness: 0.22, emissive: 0xffffff, emissiveIntensity: 0 });
   const ball = new THREE.Mesh(new THREE.SphereGeometry(BALL.radius, 32, 20), mat);
   ball.castShadow = true; ball.receiveShadow = true;
   root.add(ball);

@@ -6,12 +6,17 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { HALF } from './arena';
 
-export type Quality = 'high' | 'medium' | 'low';
-export const QUALITY: Record<Quality, { label: string; ao: boolean; bloom: boolean; pr: number; shadow: number }> = {
-  high: { label: 'High', ao: true, bloom: true, pr: 2, shadow: 2048 },
-  medium: { label: 'Medium', ao: false, bloom: true, pr: 1.5, shadow: 2048 },
-  low: { label: 'Low', ao: false, bloom: false, pr: 1, shadow: 1024 },
+export type Quality = 'ultra' | 'high' | 'medium' | 'low';
+export interface QualityDef { label: string; ao: boolean; aoScale: number; bloom: boolean; shadows: boolean; pr: number; shadow: number }
+export const QUALITY: Record<Quality, QualityDef> = {
+  ultra: { label: 'Ultra', ao: true, aoScale: 1, bloom: true, shadows: true, pr: 2, shadow: 2048 },
+  high: { label: 'High', ao: true, aoScale: 0.5, bloom: true, shadows: true, pr: 1.5, shadow: 2048 },
+  medium: { label: 'Medium', ao: false, aoScale: 0.5, bloom: true, shadows: true, pr: 1.25, shadow: 1024 },
+  low: { label: 'Low', ao: false, aoScale: 0.5, bloom: false, shadows: true, pr: 1, shadow: 1024 },
 };
+
+/** Live switches the perf panel can flip independently of the preset. */
+export interface RenderFlags { ao: boolean; bloom: boolean; shadows: boolean; res: number }
 
 export class Renderer {
   renderer: THREE.WebGLRenderer;
@@ -22,6 +27,12 @@ export class Renderer {
   bloom: UnrealBloomPass;
   sun: THREE.DirectionalLight;
   quality: Quality = 'high';
+  flags: RenderFlags = { ao: true, bloom: true, shadows: true, res: 1 };
+  gpuMs = -1;            // -1: timer queries unavailable
+  info = { calls: 0, triangles: 0, w: 0, h: 0, pr: 1 };
+  private timer: any = null;
+  private queries: WebGLQuery[] = [];
+  private aoScale = 0.5;
   shake = 0;
   private camTarget = new THREE.Vector3();
   private camPos = new THREE.Vector3(0, 30, 14);
@@ -30,6 +41,9 @@ export class Renderer {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.info.autoReset = false; // the composer renders several passes per frame; count them all
+    const gl = this.renderer.getContext();
+    this.timer = gl.getExtension('EXT_disjoint_timer_query_webgl2');
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 0.95;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -53,7 +67,10 @@ export class Renderer {
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(s, this.camera));
     this.ao = new GTAOPass(s, this.camera, 1, 1);
-    this.ao.updateGtaoMaterial({ radius: 0.9, distanceExponent: 1.6, thickness: 1.5, scale: 1.2, samples: 12 });
+    // run AO at a fraction of screen resolution (it's blurry by nature); the blend upsamples it
+    const aoSetSize = this.ao.setSize.bind(this.ao);
+    this.ao.setSize = (w: number, h: number) => aoSetSize(Math.max(1, Math.round(w * this.aoScale)), Math.max(1, Math.round(h * this.aoScale)));
+    this.ao.updateGtaoMaterial({ radius: 0.9, distanceExponent: 1.6, thickness: 1.5, scale: 1.2, samples: 8 });
     this.ao.blendIntensity = 0.85;
     this.composer.addPass(this.ao);
     this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.6, 0.45, 1.35);
@@ -67,21 +84,29 @@ export class Renderer {
   setQuality(q: Quality) {
     this.quality = q;
     const c = QUALITY[q];
-    this.ao.enabled = c.ao; this.bloom.enabled = c.bloom;
+    this.flags = { ao: c.ao, bloom: c.bloom, shadows: c.shadows, res: 1 };
+    this.aoScale = c.aoScale;
     if (this.sun.shadow.mapSize.x !== c.shadow) {
       this.sun.shadow.mapSize.set(c.shadow, c.shadow);
       this.sun.shadow.map?.dispose(); (this.sun.shadow as any).map = null;
     }
+    this.applyFlags();
+  }
+
+  applyFlags() {
+    this.ao.enabled = this.flags.ao; this.bloom.enabled = this.flags.bloom;
+    if (this.sun.castShadow !== this.flags.shadows) this.sun.castShadow = this.flags.shadows;
     this.resize();
   }
 
   resize() {
     const w = innerWidth, h = innerHeight;
-    const pr = Math.min(devicePixelRatio || 1, QUALITY[this.quality].pr);
+    const pr = Math.min(devicePixelRatio || 1, QUALITY[this.quality].pr) * this.flags.res;
     this.renderer.setPixelRatio(pr);
     this.renderer.setSize(w, h, false);
     this.composer.setPixelRatio(pr);
     this.composer.setSize(w, h);
+    this.info.w = Math.round(w * pr); this.info.h = Math.round(h * pr); this.info.pr = pr;
     this.camera.aspect = w / h;
     // keep roughly the same visible area on portrait screens
     this.camera.fov = w < h ? 58 : 40;
@@ -109,5 +134,23 @@ export class Renderer {
 
   addShake(a: number) { this.shake = Math.min(1.2, this.shake + a); }
 
-  render() { this.composer.render(); }
+  render() {
+    const gl = this.renderer.getContext() as WebGL2RenderingContext;
+    this.renderer.info.reset();
+    let q: WebGLQuery | null = null;
+    if (this.timer) { q = gl.createQuery(); if (q) gl.beginQuery(this.timer.TIME_ELAPSED_EXT, q); }
+    this.composer.render();
+    if (q) { gl.endQuery(this.timer.TIME_ELAPSED_EXT); this.queries.push(q); }
+    this.info.calls = this.renderer.info.render.calls; this.info.triangles = this.renderer.info.render.triangles;
+    // read back finished GPU timings (they arrive a frame or two late)
+    while (this.queries.length) {
+      const f = this.queries[0];
+      if (!gl.getQueryParameter(f, gl.QUERY_RESULT_AVAILABLE)) break;
+      const disjoint = gl.getParameter(this.timer.GPU_DISJOINT_EXT);
+      const ns = gl.getQueryParameter(f, gl.QUERY_RESULT) as number;
+      if (!disjoint) this.gpuMs = this.gpuMs < 0 ? ns / 1e6 : this.gpuMs * 0.9 + (ns / 1e6) * 0.1;
+      gl.deleteQuery(f); this.queries.shift();
+    }
+    if (this.queries.length > 8) { for (const f of this.queries) gl.deleteQuery(f); this.queries.length = 0; }
+  }
 }

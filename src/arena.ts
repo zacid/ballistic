@@ -30,6 +30,10 @@ export class Arena {
   floorCtx!: CanvasRenderingContext2D;
   floorTex!: THREE.CanvasTexture;
   floorDirty = false;
+  private dirty = { x0: 1e9, y0: 1e9, x1: -1, y1: -1 };
+  private fullUpload = true;
+  private flushT = 0;
+  uploads = 0; uploadPx = 0;
   private floorBase!: HTMLCanvasElement;
   floorPx = 2048;
   floorSize = N * CELL + FLOOR_MARGIN * 2;
@@ -138,23 +142,27 @@ export class Arena {
     // Blocks: one rounded cube per stacked unit, instanced.
     let count = 0;
     for (let k = 0; k < N * N; k++) count += this.h[k];
-    const geo = new RoundedBoxGeometry(CELL * 0.98, CELL * 0.98, CELL * 0.98, 3, 0.14);
+    const geo = new RoundedBoxGeometry(CELL * 0.98, CELL * 0.98, CELL * 0.98, 2, 0.14);
     const mat = new THREE.MeshStandardMaterial({ roughness: 0.42, metalness: 0.0 });
     const inst = new THREE.InstancedMesh(geo, mat, count);
-    inst.castShadow = true; inst.receiveShadow = true;
+    inst.castShadow = false; inst.receiveShadow = true;
+    // Shadows come from a plain-box proxy (12 tris vs 300 per cube). It draws nothing
+    // in the main pass (no colour, no depth); the shadow pass only needs its depth.
+    const proxy = new THREE.InstancedMesh(new THREE.BoxGeometry(CELL * 0.98, CELL * 0.98, CELL * 0.98), new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false }), count);
+    proxy.castShadow = true;
     const m = new THREE.Matrix4(); const c = new THREE.Color(); const r = rng(this.seed + 11);
     let n = 0;
     for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
       const hh = this.h[this.idx(i, j)];
       for (let y = 0; y < hh; y++) {
         m.makeTranslation(this.center(i), CELL * (y + 0.49), this.center(j));
-        inst.setMatrixAt(n, m);
+        inst.setMatrixAt(n, m); proxy.setMatrixAt(n, m);
         c.setHex(TOY[Math.max(0, this.col[this.idx(i, j)])]);
         c.offsetHSL(0, 0, (r() - 0.5) * 0.06 + (y % 2 ? 0.025 : 0));
         inst.setColorAt(n, c); n++;
       }
     }
-    this.group.add(inst);
+    this.group.add(inst, proxy);
 
     // Floor: a painted canvas so splats can be drawn onto it permanently.
     this.floorBase = document.createElement('canvas');
@@ -185,6 +193,8 @@ export class Arena {
     this.floorTex = new THREE.CanvasTexture(this.floorCanvas);
     this.floorTex.colorSpace = THREE.SRGBColorSpace;
     this.floorTex.anisotropy = 8;
+    // rows stored top-down so partial uploads map 1:1 to canvas pixels
+    this.floorTex.flipY = false; this.floorTex.repeat.set(1, -1); this.floorTex.offset.set(0, 1);
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(this.floorSize, this.floorSize),
       new THREE.MeshStandardMaterial({ map: this.floorTex, roughness: 0.85 }),
@@ -198,7 +208,13 @@ export class Arena {
     this.group.add(far);
   }
 
-  resetPaint() { this.floorCtx.drawImage(this.floorBase, 0, 0); this.floorDirty = true; }
+  resetPaint() { this.floorCtx.drawImage(this.floorBase, 0, 0); this.fullUpload = true; this.floorDirty = true; }
+
+  private markDirty(cx: number, cy: number, r: number) {
+    const d = this.dirty;
+    d.x0 = Math.min(d.x0, cx - r); d.y0 = Math.min(d.y0, cy - r); d.x1 = Math.max(d.x1, cx + r); d.y1 = Math.max(d.y1, cy + r);
+    this.floorDirty = true;
+  }
 
   /** Paint a cartoony splat onto the floor. */
   splat(x: number, z: number, size: number, color: number, rand = Math.random) {
@@ -231,7 +247,7 @@ export class Arena {
     ctx.fillStyle = 'rgba(255,255,255,0.35)';
     blob(cx - size * px * 0.28, cy - size * px * 0.3, size * px * 0.16);
     ctx.restore();
-    this.floorDirty = true;
+    this.markDirty(cx, cy, size * px * 2.6 + 4);
   }
 
   scorch(x: number, z: number, size: number) {
@@ -240,7 +256,7 @@ export class Arena {
     const g = this.floorCtx.createRadialGradient(cx, cy, 0, cx, cy, size * px);
     g.addColorStop(0, 'rgba(40,30,50,0.45)'); g.addColorStop(1, 'rgba(40,30,50,0)');
     this.floorCtx.fillStyle = g; this.floorCtx.fillRect(cx - size * px, cy - size * px, size * px * 2, size * px * 2);
-    this.floorDirty = true;
+    this.markDirty(cx, cy, size * px + 2);
   }
 
   /** First wall hit along a segment (fraction 0..1), or -1. Amanatides–Woo DDA. */
@@ -299,11 +315,11 @@ export class Arena {
     const g = new Float32Array(N * N).fill(Infinity), from = new Int32Array(N * N).fill(-1);
     const open: number[] = [start]; const f = new Float32Array(N * N).fill(Infinity);
     g[start] = 0; f[start] = Math.hypot(ti - si, tj - sj);
-    const closed = new Uint8Array(N * N);
+    const closed = new Uint8Array(N * N); const inOpen = new Uint8Array(N * N); inOpen[start] = 1;
     let guard = 0;
     while (open.length && guard++ < 3000) {
       let bi = 0; for (let k = 1; k < open.length; k++) if (f[open[k]] < f[open[bi]]) bi = k;
-      const cur = open.splice(bi, 1)[0];
+      const cur = open[bi]; open[bi] = open[open.length - 1]; open.pop(); inOpen[cur] = 0;
       if (cur === goal) break;
       closed[cur] = 1;
       const cx = cur % N, cy = (cur / N) | 0;
@@ -314,7 +330,7 @@ export class Arena {
         if (dx && dy && (this.solidCell(cx + dx, cy) || this.solidCell(cx, cy + dy))) continue;
         const nk = this.idx(nx, ny); if (closed[nk]) continue;
         const ng = g[cur] + (dx && dy ? 1.414 : 1);
-        if (ng < g[nk]) { g[nk] = ng; f[nk] = ng + Math.hypot(ti - nx, tj - ny); from[nk] = cur; if (!open.includes(nk)) open.push(nk); }
+        if (ng < g[nk]) { g[nk] = ng; f[nk] = ng + Math.hypot(ti - nx, tj - ny); from[nk] = cur; if (!inOpen[nk]) { open.push(nk); inOpen[nk] = 1; } }
       }
     }
     if (from[goal] < 0 && goal !== start) return [];
@@ -338,5 +354,39 @@ export class Arena {
     return this.raycast(x0, z0, x1, z1) < 0 && this.raycast(x0 + ox, z0 + oz, x1 + ox, z1 + oz) < 0 && this.raycast(x0 - ox, z0 - oz, x1 - ox, z1 - oz) < 0;
   }
 
-  flushPaint() { if (this.floorDirty) { this.floorTex.needsUpdate = true; this.floorDirty = false; } }
+  /**
+   * Push painted pixels to the GPU. Only the dirty rectangle is uploaded
+   * (texSubImage2D from the canvas), at most ~12 times a second, instead of
+   * re-uploading the whole 2048x2048 texture on every splat.
+   */
+  flushPaint(renderer: THREE.WebGLRenderer, dt: number) {
+    this.flushT -= dt;
+    if (!this.floorDirty || this.flushT > 0) return;
+    const props = renderer.properties.get(this.floorTex) as any;
+    const tex: WebGLTexture | undefined = props.__webglTexture;
+    const gl = renderer.getContext();
+    if (this.fullUpload || !tex || !(gl instanceof WebGL2RenderingContext)) {
+      this.floorTex.needsUpdate = true; this.fullUpload = false;
+      this.uploads++; this.uploadPx += this.floorPx * this.floorPx;
+    } else {
+      const d = this.dirty, P = this.floorPx;
+      const x0 = Math.max(0, Math.floor(d.x0)), y0 = Math.max(0, Math.floor(d.y0));
+      const x1 = Math.min(P, Math.ceil(d.x1)), y1 = Math.min(P, Math.ceil(d.y1));
+      if (x1 > x0 && y1 > y0) {
+        renderer.state.bindTexture(gl.TEXTURE_2D, tex);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+        gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+        gl.pixelStorei(gl.UNPACK_ROW_LENGTH, P);
+        gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, x0);
+        gl.pixelStorei(gl.UNPACK_SKIP_ROWS, y0);
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, x0, y0, x1 - x0, y1 - y0, gl.RGBA, gl.UNSIGNED_BYTE, this.floorCanvas);
+        gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0); gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0); gl.pixelStorei(gl.UNPACK_SKIP_ROWS, 0);
+        gl.generateMipmap(gl.TEXTURE_2D);
+        this.uploads++; this.uploadPx += (x1 - x0) * (y1 - y0);
+      }
+    }
+    this.dirty = { x0: 1e9, y0: 1e9, x1: -1, y1: -1 };
+    this.floorDirty = false; this.flushT = 0.08;
+  }
 }

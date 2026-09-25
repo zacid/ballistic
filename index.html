@@ -189,6 +189,16 @@ table.board td i { display: inline-block; width: 12px; height: 12px; border-radi
 .row input { width: 20px; height: 20px; accent-color: var(--tangerine); }
 #settings .tip { font-size: 12.5px; font-weight: 600; color: var(--muted); line-height: 1.5; margin-top: 10px; }
 
+#perf { position: fixed; z-index: 25; left: calc(14px + var(--sa-l)); top: calc(12px + var(--sa-t)); padding: 8px 12px 10px; display: none; pointer-events: none;
+  font: 600 12px/1.45 ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 204px; }
+#perf.show { display: block; }
+#perf b { font-weight: 700; }
+#perf .big { font: 400 26px var(--display); color: var(--cream); line-height: 1.05; margin-bottom: 2px; }
+#perf .big small { font: 700 13px var(--ui); color: var(--muted); }
+#perf .good { color: var(--mint); } #perf .warn { color: #ffc83a; } #perf .bad { color: var(--cherry); }
+#perf canvas { display: block; margin-top: 6px; width: 180px; height: 40px; background: rgba(0,0,0,0.25); border-radius: 6px; }
+body.perf #feed { top: calc(224px + var(--sa-t)); }
+#settings { max-height: calc(100% - 80px); overflow-y: auto; }
 #toast { position: fixed; z-index: 40; left: 50%; bottom: calc(120px + var(--sa-b)); transform: translate(-50%, 20px); opacity: 0; padding: 7px 16px; font-weight: 700; transition: opacity .2s, transform .2s; pointer-events: none; max-width: calc(100% - 32px); }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
 #loading { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: var(--sky); font: 400 26px var(--display); color: var(--ink); transition: opacity .4s; }
@@ -237,7 +247,7 @@ table.board td i { display: inline-block; width: 12px; height: 12px; border-radi
     <div id="ammo"></div>
     <div id="reload-bar"><div id="reload"></div></div>
   </div>
-  <div class="pill" id="hints"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> roll &nbsp; <kbd>Click</kbd> shoot &nbsp; <kbd>Right-click</kbd> / <kbd>G</kbd> grenade<br><kbd>R</kbd> reload &nbsp; <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> weapon &nbsp; <kbd>Tab</kbd> scores &nbsp; <kbd>P</kbd> pause</div>
+  <div class="pill" id="hints"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> roll &nbsp; <kbd>Click</kbd> shoot &nbsp; <kbd>Right-click</kbd> / <kbd>G</kbd> grenade<br><kbd>R</kbd> reload &nbsp; <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> weapon &nbsp; <kbd>Tab</kbd> scores &nbsp; <kbd>F</kbd> perf &nbsp; <kbd>P</kbd> pause</div>
   <div id="sticks">
     <div class="stick" id="stick-move"><i></i></div>
     <div class="stick" id="stick-aim"><i></i></div>
@@ -254,8 +264,15 @@ table.board td i { display: inline-block; width: 12px; height: 12px; border-radi
   <div class="seg" id="quality-seg"></div>
   <h4>SOUND</h4>
   <div class="row"><label for="tog-mute">Mute (<kbd>M</kbd>)</label><input type="checkbox" id="tog-mute"></div>
-  <div class="tip">Auto starts on High and steps down if the frame rate drops below 45 fps.</div>
+  <div class="row"><label for="tog-perf">Performance panel (<kbd>F</kbd>)</label><input type="checkbox" id="tog-perf"></div>
+  <h4>DEBUG SWITCHES</h4>
+  <div class="row"><label for="dbg-ao">Ambient occlusion</label><input type="checkbox" id="dbg-ao"></div>
+  <div class="row"><label for="dbg-bloom">Bloom</label><input type="checkbox" id="dbg-bloom"></div>
+  <div class="row"><label for="dbg-shadows">Shadows</label><input type="checkbox" id="dbg-shadows"></div>
+  <div class="row"><span>Resolution</span><div class="seg" id="res-seg"></div></div>
+  <div class="tip">Auto starts on High and steps down if the frame rate stays under 45 fps. Picking a preset resets the switches.</div>
 </div>
+<div id="perf" class="pill"><div id="perf-text"></div><canvas id="perf-graph" width="180" height="40"></canvas></div>
 
 <div id="menu" class="screen">
   <h1 id="title">BALLISTIC<span class="dot">.</span></h1>
