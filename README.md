@@ -49,15 +49,35 @@ npm run preview    # serves site/ on http://localhost:8766
 2. Send the link to your friend. When they open it they land straight in your lobby. No accounts needed.
 3. When their name shows up, either of you picks **1v1** or **2 vs bots**.
 
-How it works:
+### How the connection works
 
-- The browsers connect directly with WebRTC. [PeerJS](https://peerjs.com)'s free public broker only introduces them; game traffic doesn't go through it.
+Two transports, chosen by `RELAY_URL` in `src/config.ts`:
+
+- **Relay (recommended).** Both browsers open a WebSocket to a tiny Cloudflare Worker (`relay/`), which forwards messages between them. It works on any network that can load a website: no port forwarding, NAT or firewall rules. Cloudflare runs it close to the players (there are data centres in Johannesburg and Cape Town).
+- **Direct WebRTC via PeerJS** (used when `RELAY_URL` is empty). No server of your own, but strict routers, VPNs and privacy settings can block it.
+
+You can try a different relay without rebuilding with `?relay=wss://...` in the page URL.
+
+### Deploy the relay (one time, free)
+
+```bash
+cd relay
+npm install
+npx wrangler deploy
+```
+
+The first deploy opens a browser to log in to Cloudflare (a free account is enough) and may ask you to pick a `workers.dev` subdomain. It prints the relay's address, something like `https://ballistic-relay.<you>.workers.dev`. Put that in `RELAY_URL` in `src/config.ts`, commit and push.
+
+Check it's up by opening `https://ballistic-relay.<you>.workers.dev/health` (it says `ballistic relay ok`).
+
+The relay uses one SQLite-backed Durable Object per room with the WebSocket Hibernation API, which the Workers free plan covers. It holds a host and a guest per room code and only forwards bytes; game logic stays in the browsers.
+
+### Netcode
+
 - Each player simulates their own ball, so movement always feels instant. The other ball is shown about 110 ms in the past and smoothed.
 - Whoever fires decides whether a shot hit (favour-the-shooter). The victim's browser applies the damage and reports deaths.
 - The host (whoever created the link) runs the bots, the clock and the score.
-- State travels as a small snapshot about 20 times a second, plus a rolling log of recent events so a dropped packet is recovered by the next one.
-
-Known limit: there's no TURN relay server, so a small share of networks (some corporate Wi-Fi, some mobile carriers) can't connect directly. If you hit that, add a TURN server to the `config.iceServers` passed to `new Peer()` in `src/peerroom.ts`.
+- State travels as a small snapshot about 20 times a second, plus a rolling log of recent events so a dropped message is recovered by the next one.
 
 ## Code map
 
@@ -65,7 +85,9 @@ Known limit: there's no TURN relay server, so a small share of networks (some co
 | --- | --- |
 | `src/game.ts` | Match flow, physics, weapons, abilities, damage, netcode glue |
 | `src/net.ts` | Presence snapshots, event log, clock offsets |
-| `src/peerroom.ts` | WebRTC transport (PeerJS) with the same shape as the claude.ai room API |
+| `src/wsroom.ts` | WebSocket transport to the relay |
+| `src/peerroom.ts` | Direct WebRTC transport (PeerJS) |
+| `relay/src/index.ts` | The Cloudflare Worker relay |
 | `src/bots.ts` | Bot AI: targeting, pathing, strafing, grenades, abilities |
 | `src/arena.ts` | Seeded arena generation, collision, A*, floor paint |
 | `src/render.ts` | Renderer, shadows, GTAO, bloom, quality presets, GPU timing |

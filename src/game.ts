@@ -15,6 +15,8 @@ import { thinkBot } from './bots';
 import { Stats } from './stats';
 import { Net, NetEvent, RosterEntry, StartOffer, HostState } from './net';
 import { PeerRoom, newCode } from './peerroom';
+import { WsRoom } from './wsroom';
+import { RELAY_URL } from './config';
 
 interface Shot { owner: number; x: number; z: number; vx: number; vz: number; life: number; dist: number; w: WeaponId; mesh?: THREE.Object3D; trailT: number; cosmetic: boolean }
 interface Nade { owner: number; x: number; y: number; z: number; vx: number; vy: number; vz: number; fuse: number; mesh: THREE.Mesh; cosmetic: boolean }
@@ -662,7 +664,13 @@ export class Game {
 
   /** Inside claude.ai the page can't open WebRTC connections, so online play lives on the hosted build. */
   get inArtifact() { return !!(window as any).claude?.use; }
-  peerRoom: PeerRoom | null = null;
+  peerRoom: PeerRoom | WsRoom | null = null;
+
+  /** Relay if one is configured (works on any network); otherwise direct WebRTC. */
+  private makeRoom(role: 'host' | 'guest', code: string) {
+    const relay = (window as any).__RELAY ?? new URLSearchParams(location.search).get('relay') ?? RELAY_URL;
+    return relay ? new WsRoom(role, code, relay) : new PeerRoom(role, code);
+  }
 
   openLobby() {
     this.audio.unlock();
@@ -681,7 +689,7 @@ export class Game {
 
   async createInvite(retry = 1) {
     this.peerRoom?.destroy();
-    const room = new PeerRoom('host', newCode());
+    const room = this.makeRoom('host', newCode());
     this.peerRoom = room;
     await this.net.connect(room);
     this.joinPresence();
@@ -695,7 +703,7 @@ export class Game {
 
   async joinInvite(code: string) {
     this.peerRoom?.destroy();
-    const room = new PeerRoom('guest', code);
+    const room = this.makeRoom('guest', code);
     this.peerRoom = room;
     await this.net.connect(room);
     this.joinPresence();
