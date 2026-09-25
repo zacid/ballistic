@@ -183,6 +183,11 @@ body.touch #wpn { left: auto; right: calc(14px + var(--sa-r)); transform: none; 
 .peer em { font-style: normal; font-size: 12px; color: var(--mint); }
 .peer.me em { color: var(--muted); }
 #lobby-status { font-weight: 700; color: var(--cream); }
+#lobby-status a { color: #9fd3ff; }
+.mode-btn.invite { background: linear-gradient(#bfe6ff, #5ab8ff 50%, #2f8cff); width: 100%; }
+#invite-row { gap: 8px; }
+#invite-row input { flex: 1; min-width: 0; padding: 7px 10px; border-radius: 10px; border: 3px solid var(--ink); background: var(--cream); color: var(--ink); font: 700 14px ui-monospace, Menlo, Consolas, monospace; user-select: text; -webkit-user-select: text; }
+#invite-row .ghost-btn { margin: 0; }
 #lobby-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .mode-btn { text-align: left; padding: 10px 12px; border-radius: 14px; border: 3px solid var(--ink); background: linear-gradient(#ffc27a, var(--tangerine)); color: var(--ink); cursor: pointer; display: grid; gap: 2px; box-shadow: 0 5px 0 var(--ink); }
 .mode-btn b { font: 400 22px var(--display); }
@@ -347,6 +352,10 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
   <div class="lobby-card pill">
     <div class="row nick-row"><label for="nick">Your name</label><input id="nick" type="text" maxlength="16" placeholder="Player" autocomplete="off"></div>
     <div id="lobby-peers"></div>
+    <div id="lobby-invite">
+      <button class="mode-btn invite" id="invite-btn"><b>Create invite link</b><span>Hosts the game on this computer.</span></button>
+      <div class="row" id="invite-row" hidden><input id="invite-link" type="text" readonly aria-label="Invite link"><button class="ghost-btn" id="invite-copy">COPY</button></div>
+    </div>
     <div id="lobby-status"></div>
     <div id="lobby-diag" class="tip"></div>
     <div id="lobby-modes">
@@ -354,9 +363,9 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
       <button class="mode-btn" id="lobby-coop"><b>2 vs bots</b><span>Team up against 5 bots. First team to 30.</span></button>
     </div>
     <div id="lobby-loadout" class="tip"></div>
-    <ol class="tip steps">
-      <li>Open <b>Share</b> on this page and invite your friend by email.</li>
-      <li>They sign in to claude.ai, open the link, and press <b>Play with a friend</b>.</li>
+    <ol class="tip steps" id="lobby-steps">
+      <li>Press <b>Create invite link</b>.</li>
+      <li>Send the link to your friend (WhatsApp, Discord, anything).</li>
       <li>When their name shows up here, either of you picks a mode.</li>
     </ol>
   </div>

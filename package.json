@@ -1,22 +1,26 @@
 {
-  "name": "babo",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "name": "ballistic",
+  "version": "0.4.0",
+  "description": "Rolling toy balls with guns. A Babo Violent 2 style arena shooter in Three.js.",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "vite",
+    "build": "vite build && node post.mjs",
+    "preview": "python3 -m http.server 8766 -d site",
+    "typecheck": "tsc -p .",
+    "test:p2p": "node tests/p2p.mjs duel"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
+    "peerjs": "^1.5.5",
     "three": "^0.180.0"
   },
   "devDependencies": {
     "@types/three": "^0.186.0",
+    "peer": "^1.0.2",
     "playwright-core": "^1.63.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.1",
     "vite-plugin-singlefile": "^2.3.3"
-  }
+  },
+  "private": true,
+  "type": "module"
 }

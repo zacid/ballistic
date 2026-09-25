@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Game } from './game';
 import type { Babo } from './babo';
-import { ABILITIES, AbilityId, BALL, COLORS, DIFFICULTY, Difficulty, GRENADE, MODES, ModeId, WEAPONS, WeaponId } from './config';
+import { ONLINE_URL, ABILITIES, AbilityId, BALL, COLORS, DIFFICULTY, Difficulty, GRENADE, MODES, ModeId, WEAPONS, WeaponId } from './config';
 import { QUALITY, Quality } from './render';
 import type { RenderFlags } from './render';
 
@@ -32,6 +32,12 @@ export class Hud {
     $('to-menu').addEventListener('click', () => this.toMenu());
     $('lobby-back').addEventListener('click', () => { this.g.leaveLobby(); this.toMenu(); });
     for (const m of ['duel', 'coop'] as ModeId[]) $('lobby-' + m).addEventListener('click', () => { this.g.audio.play('click'); this.g.hostMatch(m); });
+    $('invite-btn').addEventListener('click', () => { this.g.audio.play('click'); this.g.createInvite(); });
+    $('invite-copy').addEventListener('click', () => {
+      const inp = $('invite-link') as HTMLInputElement;
+      const done = () => { $('invite-copy').textContent = 'COPIED'; setTimeout(() => ($('invite-copy').textContent = 'COPY'), 1500); };
+      navigator.clipboard?.writeText(inp.value).then(done, () => { inp.select(); document.execCommand?.('copy'); done(); });
+    });
     const nick = $('nick') as HTMLInputElement;
     nick.value = this.g.saved.nick;
     nick.addEventListener('input', () => this.g.setNick(nick.value.trim()));
@@ -133,24 +139,36 @@ export class Hud {
 
   renderLobby() {
     if (this.g.state !== 'lobby') { $('lobby').classList.remove('open'); return; }
-    const net = this.g.net;
+    const g = this.g, net = g.net, room = g.peerRoom;
     const st = $('lobby-status'), list = $('lobby-peers');
     const friends = net.others();
-    const me = `<div class="peer me"><i style="background:${hex(COLORS[this.g.saved.color % COLORS.length].hex)}"></i><span>${esc(this.g.saved.nick || 'Player')}</span><em>you</em></div>`;
+    const me = `<div class="peer me"><i style="background:${hex(COLORS[g.saved.color % COLORS.length].hex)}"></i><span>${esc(g.saved.nick || 'Player')}</span><em>you${room?.role === 'host' ? ' (host)' : ''}</em></div>`;
     list.innerHTML = me + friends.map(p => `<div class="peer"><i style="background:${hex(COLORS[(Number(p.presence.c) || 0) % COLORS.length].hex)}"></i><span>${esc(String(p.presence.n || 'Friend'))}</span><em>ready</em></div>`).join('');
-    const ready = net.status === 'ready';
-    if (net.status === 'connecting' || net.status === 'off') st.textContent = 'Connecting to the room...';
-    else if (net.status === 'unavailable') st.innerHTML = `Online play isn't available in this view. You both need to be signed in to claude.ai, and this page has to be shared with your friend.`;
-    else if (!friends.length) st.textContent = 'Waiting for your friend to open this page and press Play with a friend.';
-    else st.textContent = `${String(friends[0].presence.n || 'Your friend')} is here. Either of you can start.`;
-    for (const m of ['duel', 'coop'] as ModeId[]) ($('lobby-' + m) as HTMLButtonElement).disabled = !ready || !friends.length;
-    // connection diagnostics, so we can tell "not admitted" apart from "not in the lobby yet"
-    const onPage = net.peers.filter(p => !p.sameTab && (p as any).kind !== 'agent').length;
-    const diag = net.status === 'ready'
-      ? `Room ${net.linked ? 'connected' : 'connecting'} | ${onPage} other ${onPage === 1 ? 'viewer' : 'viewers'} on this page | ${friends.length} in the lobby${net.error ? ' | ' + net.error : ''}`
-      : `Room ${net.status}${net.error ? ' | ' + net.error : ''}`;
-    $('lobby-diag').textContent = diag + (net.status === 'ready' ? ` | ${net.debug()}` : '');
-    $('lobby-loadout').textContent = `Your loadout: ${WEAPONS[this.g.saved.weapon].name} + ${ABILITIES[this.g.saved.ability].name}. Change it from the main menu.`;
+    const fname = friends.length ? String(friends[0].presence.n || 'Your friend') : '';
+    const err = room?.error || '';
+    let msg: string;
+    if (g.inArtifact) msg = ONLINE_URL
+      ? `Online play doesn't work inside claude.ai. Open the hosted game: <a href="${esc(ONLINE_URL)}" target="_blank" rel="noopener">${esc(ONLINE_URL)}</a>`
+      : `Online play doesn't work inside claude.ai. Use the version hosted on GitHub Pages.`;
+    else if (!room) msg = 'Create an invite link, then send it to your friend.';
+    else if (err === 'peer-unavailable') msg = 'That invite has expired, or your friend closed the game. Ask them for a new link.';
+    else if (err === 'room-full') msg = 'That game already has two players.';
+    else if (err === 'network' || err === 'server-error' || err === 'socket-error' || err === 'socket-closed') msg = "Couldn't reach the matchmaking server. Check your connection and try again.";
+    else if (err === 'browser-incompatible') msg = "This browser can't make direct connections (WebRTC). Try Chrome, Edge, Firefox or Safari.";
+    else if (err && err !== 'unavailable-id') msg = `Connection problem (${esc(err)}). Try again.`;
+    else if (friends.length) msg = `${esc(fname)} is here. Either of you can pick a mode.`;
+    else if (room.role === 'host') msg = net.linked ? 'Send the link to your friend. Waiting for them to open it...' : 'Setting up your game...';
+    else msg = "Joining your friend's game...";
+    st.innerHTML = msg;
+    const inv = !g.inArtifact && (!room || room.role === 'host');
+    $('lobby-invite').hidden = !inv;
+    $('invite-btn').hidden = !!room;
+    $('invite-row').hidden = !(room && room.role === 'host' && net.linked);
+    if (room && room.role === 'host') ($('invite-link') as HTMLInputElement).value = room.link;
+    $('lobby-steps').hidden = g.inArtifact || room?.role === 'guest' || friends.length > 0;
+    for (const m of ['duel', 'coop'] as ModeId[]) ($('lobby-' + m) as HTMLButtonElement).disabled = !friends.length;
+    $('lobby-diag').textContent = room ? `${room.role} | code ${room.code} | ${net.linked ? 'connected' : 'not connected'} | ${friends.length} friend${friends.length === 1 ? '' : 's'} in lobby` : '';
+    $('lobby-loadout').textContent = `Your loadout: ${WEAPONS[g.saved.weapon].name} + ${ABILITIES[g.saved.ability].name}. Change it from the main menu.`;
   }
 
   toMenu() {

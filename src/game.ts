@@ -14,6 +14,7 @@ import { Input } from './input';
 import { thinkBot } from './bots';
 import { Stats } from './stats';
 import { Net, NetEvent, RosterEntry, StartOffer, HostState } from './net';
+import { PeerRoom, newCode } from './peerroom';
 
 interface Shot { owner: number; x: number; z: number; vx: number; vz: number; life: number; dist: number; w: WeaponId; mesh?: THREE.Object3D; trailT: number; cosmetic: boolean }
 interface Nade { owner: number; x: number; y: number; z: number; vx: number; vy: number; vz: number; fuse: number; mesh: THREE.Mesh; cosmetic: boolean }
@@ -103,6 +104,8 @@ export class Game {
     this.newArena(MODES.solo.size);
     this.frame = this.frame.bind(this);
     requestAnimationFrame(this.frame);
+    // opened from an invite link: go straight to the lobby
+    if (!this.inArtifact && /^#[a-z0-9]{6}$/.test(location.hash)) setTimeout(() => this.openLobby(), 50);
   }
 
   save() { try { localStorage.setItem(STORE, JSON.stringify(this.saved)); } catch { /* storage unavailable */ } }
@@ -657,17 +660,53 @@ export class Game {
     net.changed(() => { this.checkOffers(); this.hud.renderLobby(); });
   }
 
-  async openLobby() {
+  /** Inside claude.ai the page can't open WebRTC connections, so online play lives on the hosted build. */
+  get inArtifact() { return !!(window as any).claude?.use; }
+  peerRoom: PeerRoom | null = null;
+
+  openLobby() {
     this.audio.unlock();
     this.state = 'lobby';
     this.hud.showLobby();
-    const st = await this.net.connect();
-    if (st === 'ready') this.net.set({ n: this.saved.nick || 'Player', c: this.saved.color, lob: 1, start: null, s: null, ev: null, h: null });
+    if (this.inArtifact) { this.net.status = 'unavailable'; this.net.error = 'artifact'; this.hud.renderLobby(); return; }
+    const code = (location.hash.match(/^#([a-z0-9]{6})$/) || [])[1];
+    if (this.peerRoom) this.joinPresence();
+    else if (code) this.joinInvite(code);
+    this.hud.renderLobby();
+  }
+
+  private joinPresence() {
+    this.net.set({ n: this.saved.nick || 'Player', c: this.saved.color, lob: 1, start: null, s: null, ev: null, h: null });
+  }
+
+  async createInvite(retry = 1) {
+    this.peerRoom?.destroy();
+    const room = new PeerRoom('host', newCode());
+    this.peerRoom = room;
+    await this.net.connect(room);
+    this.joinPresence();
+    room.onConnection(() => {}, e => {
+      // someone else already holds this code: pick a fresh one
+      if (e.code === 'unavailable-id' && retry > 0 && this.peerRoom === room) this.createInvite(retry - 1);
+      this.hud.renderLobby();
+    });
+    this.hud.renderLobby();
+  }
+
+  async joinInvite(code: string) {
+    this.peerRoom?.destroy();
+    const room = new PeerRoom('guest', code);
+    this.peerRoom = room;
+    await this.net.connect(room);
+    this.joinPresence();
     this.hud.renderLobby();
   }
 
   leaveLobby() {
     this.net.set({ lob: null, start: null, s: null, ev: null, h: null });
+    this.peerRoom?.destroy(); this.peerRoom = null;
+    this.net.reset();
+    if (location.hash) history.replaceState(null, '', location.pathname + location.search);
     this.offer = null; this.online = false;
     this.state = 'menu';
   }
@@ -814,6 +853,9 @@ export class Game {
     for (const b of this.babos) b.root.visible = false;
     this.openLobby();
   }
+
+  /** The friend dropped: keep the invite open so they can come back. */
+  get partnerHere() { return this.net.others().some(p => p.peer === this.partner); }
 
   // ---------- frame ----------
   frame(now: number) {

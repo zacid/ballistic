@@ -46,16 +46,21 @@ export class Net {
   onLeft: (peer: string) => void = () => {};
   presenceBase: Record<string, unknown> = {};
 
-  async connect() {
-    if (this.status === 'ready' || this.status === 'connecting') return this.status;
+  /** Connect over the artifact room capability, or over a provided room-shaped transport (PeerRoom). */
+  async connect(provided?: any) {
+    if (!provided && (this.status === 'ready' || this.status === 'connecting')) return this.status;
+    this.reset();
     this.status = 'connecting'; this.emitChange();
-    try {
+    if (provided) this.room = provided;
+    else try {
       const c = (window as any).claude;
       this.room = c?.use ? await c.use('room') : null;
     } catch { this.room = null; }
     if (!this.room) { this.status = 'unavailable'; this.error = (window as any).claude?.use ? 'room_null' : 'no_runtime'; this.emitChange(); return this.status; }
     try { this.room.onConnection((c: boolean) => { this.linked = c; this.emitChange(); }, (e: any) => { this.error = e.code; this.emitChange(); }); } catch { /* older runtime */ }
+    const room = this.room;
     this.room.onPeers((ch: any) => {
+      if (room !== this.room) return;
       this.deliveries++;
       this.peers = ch.peers as Peerish[];
       const mine = this.peers.find(p => p.sameTab); if (mine) this.me = mine.peer;
@@ -66,8 +71,16 @@ export class Net {
     this.status = 'ready'; this.emitChange();
     // Belt and braces: also read the synchronous peers() snapshot a few times a second,
     // in case change deliveries are sparse.
-    setInterval(() => this.poll(), 250);
+    this.pollId = window.setInterval(() => this.poll(), 250);
     return this.status;
+  }
+
+  private pollId = 0;
+  reset() {
+    if (this.pollId) clearInterval(this.pollId);
+    this.pollId = 0; this.room = null; this.peers = []; this.me = ''; this.error = ''; this.linked = false;
+    this.status = 'off'; this.deliveries = 0; this.lastSeenAt.clear(); this.seen.clear(); this.offsets.clear();
+    this.presenceBase = {}; this.log = [];
   }
 
   deliveries = 0;

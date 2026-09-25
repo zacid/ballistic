@@ -100,3 +100,6 @@ export const DIFFICULTY: Record<Difficulty, { react: number; aimErr: number; lea
   normal: { react: 0.32, aimErr: 0.12, lead: 0.7, nade: 0.6, label: 'Normal' },
   hard: { react: 0.18, aimErr: 0.06, lead: 0.95, nade: 1, label: 'Hard' },
 };
+
+/** Where the hosted (GitHub Pages) build lives; shown in the claude.ai artifact's lobby. */
+export const ONLINE_URL = '';
