@@ -105,4 +105,4 @@ export const DIFFICULTY: Record<Difficulty, { react: number; aimErr: number; lea
 export const ONLINE_URL = 'https://zacid.github.io/ballistic/';
 
 /** WebSocket relay (relay/ folder, a Cloudflare Worker). Empty = direct WebRTC via PeerJS. */
-export const RELAY_URL = '';
+export const RELAY_URL = 'https://ballistic-relay.zac156.workers.dev';
