@@ -42,7 +42,7 @@ const STORE = 'ballistic.v1';
 export interface Saved {
   weapon: WeaponId; ability: AbilityId; color: number; difficulty: Difficulty; quality: Quality | 'auto';
   muted: boolean; best?: number; perf?: boolean; nick: string;
-  soloMode: 'solo' | 'gungame' | 'waves'; map: MapChoice; arenaSize: ArenaSize; bestWave?: number; music?: boolean; v2?: boolean;
+  soloMode: 'solo' | 'gungame' | 'waves'; map: MapChoice; arenaSize: ArenaSize; botCount: number; coopBots: number; bestWave?: number; music?: boolean; v2?: boolean;
 }
 function load(): Saved {
   let s: Partial<Saved> = {};
@@ -51,7 +51,7 @@ function load(): Saved {
     // v2: Adaptive became the default (once), since it's the one that suits Hold the Fort
     weapon: s.weapon ?? 'shotgun', ability: s.ability ?? 'dash', color: s.color ?? 0, difficulty: (s as any).v2 ? s.difficulty ?? 'adaptive' : 'adaptive',
     quality: s.quality ?? 'auto', muted: !!s.muted, best: s.best, perf: s.perf, nick: s.nick ?? '',
-    soloMode: s.soloMode ?? 'solo', map: s.map && s.map in MAPS ? s.map : 'random', arenaSize: s.arenaSize ?? 'medium', bestWave: s.bestWave, music: s.music ?? true, v2: true,
+    soloMode: s.soloMode ?? 'solo', map: s.map && s.map in MAPS ? s.map : 'random', arenaSize: s.arenaSize ?? 'medium', botCount: s.botCount ?? 7, coopBots: s.coopBots ?? 5, bestWave: s.bestWave, music: s.music ?? true, v2: true,
   };
 }
 
@@ -191,7 +191,8 @@ export class Game {
     const roster: RosterEntry[] = [{ id: 0, name: 'You', color: COLORS[pc].hex, team: 0, human: true }];
     const cols = COLORS.filter((_, i) => i !== pc);
     const names = [...BOT_NAMES].sort(() => Math.random() - 0.5);
-    for (let i = 0; i < mode.bots; i++) roster.push({ id: i + 1, name: names[i % names.length], color: cols[i % cols.length].hex, team: mode.teams ? 1 : i + 1, human: false });
+    const nBots = mode.waves ? mode.bots : this.saved.botCount;   // wave slots are fixed; the director decides how many come
+    for (let i = 0; i < nBots; i++) roster.push({ id: i + 1, name: names[i % names.length], color: cols[i % cols.length].hex, team: mode.teams ? 1 : i + 1, human: false });
     this.begin(mode, (Math.random() * 1e9) | 0, roster, 0, this.resolveMap(mode), this.arenaN);
   }
 
@@ -1264,7 +1265,8 @@ export class Game {
     ];
     const cols = COLORS.filter((_, i) => i !== myC && i !== theirC);
     const names = [...BOT_NAMES].sort(() => Math.random() - 0.5);
-    for (let i = 0; i < mode.bots; i++) roster.push({ id: i + 2, name: names[i], color: cols[i % cols.length].hex, team: mode.teams ? 1 : i + 2, human: false });
+    const nBots = modeId === 'coop' ? this.saved.coopBots : mode.bots;
+    for (let i = 0; i < nBots; i++) roster.push({ id: i + 2, name: names[i], color: cols[i % cols.length].hex, team: mode.teams ? 1 : i + 2, human: false });
     const offer: StartOffer = { e: (Math.random() * 1e9) | 0, mode: modeId, seed: (Math.random() * 1e9) | 0, guest: friend.peer, roster, diff: this.saved.difficulty, map: this.resolveMap(mode), n: this.arenaN };
     this.offer = offer; this.lastMode = modeId;
     this.net.clearMatch();

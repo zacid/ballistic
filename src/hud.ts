@@ -109,7 +109,7 @@ export class Hud {
     const sm = this.g.saved.soloMode, gg = sm === 'gungame';
     $('tagline').textContent = gg ? 'Gun Game: every pop moves you up a weapon. Pop someone with spikes to win.'
       : sm === 'waves' ? `Hold the Fort: survive the waves from the keep.${this.g.saved.bestWave ? ` Best: wave ${this.g.saved.bestWave}.` : ''}`
-      : 'Eight toy balls, eight guns, one arena. First to 20 pops wins.';
+      : `${['Four', 'Six', 'Eight'][[3, 5, 7].indexOf(this.g.saved.botCount)] ?? 'Eight'} toy balls, eight guns, one arena. First to 20 pops wins.`;
     $('cards-label').textContent = gg ? 'Gun Game hands these out in order, rockets first.' : 'Start with a pistol. Roll over a gun in the arena to grab it.';
     $('best').textContent = this.g.saved.best ? `Best finish: ${ordinal(this.g.saved.best)}` : '';
   }
@@ -149,6 +149,17 @@ export class Hud {
         b.className = d === this.g.saved.difficulty ? 'on' : '';
         b.addEventListener('click', () => { this.g.audio.unlock(); this.g.audio.play('click'); this.g.saved.difficulty = d; this.g.save(); redraw(); });
         ds.appendChild(b);
+      }
+      // how many bots: solo Free-for-all / Gun Game in the menu, 2 vs bots in the lobby
+      const key = pre ? 'coopBots' : 'botCount';
+      const cs = $(pre + 'count-seg'); cs.innerHTML = '';
+      cs.hidden = pre === '' && this.g.saved.soloMode === 'waves';
+      for (const n of [3, 5, 7]) {
+        const b = document.createElement('button'); b.textContent = `${n} bots`;
+        b.title = pre ? `${n} bots in 2 vs bots` : `${n} bots in Free-for-all and Gun Game`;
+        b.className = n === this.g.saved[key] ? 'on' : '';
+        b.addEventListener('click', () => { this.g.audio.unlock(); this.g.audio.play('click'); this.g.saved[key] = n; this.g.save(); redraw(); });
+        cs.appendChild(b);
       }
       // Hold the Fort always plays on the Fort, so the solo arena picker locks while it's chosen
       const locked = pre === '' && this.g.saved.soloMode === 'waves';
