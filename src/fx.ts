@@ -17,6 +17,8 @@ export class Fx {
   private glows: Bit[] = [];
   private lights: { l: THREE.PointLight; life: number; max: number; power: number }[] = [];
   private rings: { m: THREE.Mesh; life: number; max: number; size: number }[] = [];
+  private beams: { m: THREE.Mesh; life: number; max: number }[] = [];
+  floorAt: (x: number, z: number) => number = () => 0;
   private MAXB = 900; private MAXP = 260; private MAXG = 400;
 
   constructor(scene: THREE.Scene) {
@@ -33,6 +35,11 @@ export class Fx {
     for (let i = 0; i < 3; i++) {
       const l = new THREE.PointLight(0xffaa55, 0, 9, 1.6); // always visible: toggling would recompile shaders
       this.group.add(l); this.lights.push({ l, life: 0, max: 1, power: 0 });
+    }
+    const beamGeo = new THREE.CylinderGeometry(1, 1, 1, 8, 1, true); beamGeo.rotateX(Math.PI / 2);
+    for (let i = 0; i < 6; i++) {
+      const m = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false, toneMapped: false, blending: THREE.AdditiveBlending }));
+      m.visible = false; m.frustumCulled = false; this.group.add(m); this.beams.push({ m, life: 0, max: 1 });
     }
     const ringGeo = new THREE.RingGeometry(0.8, 1, 40); ringGeo.rotateX(-Math.PI / 2);
     for (let i = 0; i < 6; i++) {
@@ -58,28 +65,47 @@ export class Fx {
     for (const s of this.lights) if (s.life <= 0) { best = s; break; } else if (s.life < best.life) best = s;
     best.l.position.set(x, y, z); best.l.color.set(color); best.life = dur; best.max = dur; best.power = power;
   }
-  ring(x: number, z: number, size: number, color: number, dur = 0.35) {
+  ring(x: number, z: number, size: number, color: number, dur = 0.35, y = 0) {
     let best = this.rings[0];
     for (const r of this.rings) if (r.life <= 0) { best = r; break; }
-    best.m.position.set(x, 0.06, z); (best.m.material as THREE.MeshBasicMaterial).color.set(color);
+    best.m.position.set(x, 0.06 + y, z); (best.m.material as THREE.MeshBasicMaterial).color.set(color);
     best.life = dur; best.max = dur; best.size = size; best.m.visible = true;
   }
 
-  explosion(x: number, z: number, radius: number) {
-    this.flash(x, 1.4, z, 0xffa040, 60, 0.35);
-    this.ring(x, z, radius * 1.1, 0xffd08a, 0.32);
+  /** Railgun beam from a to b, fading out. */
+  beam(x0: number, y: number, z0: number, x1: number, z1: number, color: number) {
+    let best = this.beams[0];
+    for (const b of this.beams) if (b.life <= 0) { best = b; break; } else if (b.life < best.life) best = b;
+    const len = Math.hypot(x1 - x0, z1 - z0) || 0.01;
+    best.m.position.set((x0 + x1) / 2, y, (z0 + z1) / 2);
+    best.m.rotation.set(0, Math.atan2(x1 - x0, z1 - z0), 0);
+    best.m.scale.set(0.09, 0.09, len);
+    (best.m.material as THREE.MeshBasicMaterial).color.set(color).multiplyScalar(2.5);
+    best.life = best.max = 0.35; best.m.visible = true;
+    // sparkles along the beam
+    const n = Math.min(30, Math.floor(len * 1.5));
+    for (let i = 0; i < n; i++) {
+      const t = Math.random();
+      this.glow(x0 + (x1 - x0) * t, y, z0 + (z1 - z0) * t, (Math.random() - 0.5) * 1.5, Math.random() * 1.5, (Math.random() - 0.5) * 1.5, 0.05 + Math.random() * 0.04, color, 0.3 + Math.random() * 0.3, 2);
+    }
+    this.flash(x0, y + 0.4, z0, color, 12, 0.12);
+  }
+
+  explosion(x: number, z: number, radius: number, y = 0) {
+    this.flash(x, 1.4 + y, z, 0xffa040, 60, 0.35);
+    this.ring(x, z, radius * 1.1, 0xffd08a, 0.32, y);
     for (let i = 0; i < 26; i++) {
       const a = Math.random() * Math.PI * 2, s = 3 + Math.random() * 9;
-      this.glow(x, 0.6, z, Math.cos(a) * s, 2 + Math.random() * 6, Math.sin(a) * s, 0.09 + Math.random() * 0.1, Math.random() < 0.5 ? 0xffd25a : 0xff7a2a, 0.25 + Math.random() * 0.3, 12);
+      this.glow(x, 0.6 + y, z, Math.cos(a) * s, 2 + Math.random() * 6, Math.sin(a) * s, 0.09 + Math.random() * 0.1, Math.random() < 0.5 ? 0xffd25a : 0xff7a2a, 0.25 + Math.random() * 0.3, 12);
     }
     for (let i = 0; i < 14; i++) {
       const a = Math.random() * Math.PI * 2, s = Math.random() * radius * 0.6;
-      this.puff(x + Math.cos(a) * s, 0.4 + Math.random() * 0.6, z + Math.sin(a) * s, 0.3 + Math.random() * 0.35, 0.55 + Math.random() * 0.5, Math.cos(a) * 3, 1 + Math.random() * 2, Math.sin(a) * 3, 1.6);
+      this.puff(x + Math.cos(a) * s, 0.4 + y + Math.random() * 0.6, z + Math.sin(a) * s, 0.3 + Math.random() * 0.35, 0.55 + Math.random() * 0.5, Math.cos(a) * 3, 1 + Math.random() * 2, Math.sin(a) * 3, 1.6);
     }
     // fireball core
     for (let i = 0; i < 8; i++) {
       const a = Math.random() * Math.PI * 2, s = Math.random() * 2;
-      this.glow(x, 0.7, z, Math.cos(a) * s, 1 + Math.random() * 2, Math.sin(a) * s, 0.55 + Math.random() * 0.4, i % 2 ? 0xffb347 : 0xfff1a8, 0.16 + Math.random() * 0.1, 0);
+      this.glow(x, 0.7 + y, z, Math.cos(a) * s, 1 + Math.random() * 2, Math.sin(a) * s, 0.55 + Math.random() * 0.4, i % 2 ? 0xffb347 : 0xfff1a8, 0.16 + Math.random() * 0.1, 0);
     }
   }
 
@@ -90,7 +116,7 @@ export class Fx {
       const b = this.bits[i]; b.life -= dt;
       if (b.life <= 0) { this.bits.splice(i, 1); continue; }
       b.vy -= b.grav * dt; b.x += b.vx * dt; b.y += b.vy * dt; b.z += b.vz * dt;
-      if (b.bounce && b.y < b.size) { b.y = b.size; b.vy = Math.abs(b.vy) * 0.35; b.vx *= 0.7; b.vz *= 0.7; b.spin *= 0.6; }
+      const fy = b.bounce ? this.floorAt(b.x, b.z) : 0; if (b.bounce && b.y < fy + b.size) { b.y = fy + b.size; b.vy = Math.abs(b.vy) * 0.35; b.vx *= 0.7; b.vz *= 0.7; b.spin *= 0.6; }
       b.spin += dt * 4;
     }
     for (const b of this.bits) {
@@ -130,6 +156,12 @@ export class Fx {
     for (const s of this.lights) {
       if (s.life <= 0) { s.l.intensity = 0; continue; }
       s.life -= dt; const k = Math.max(0, s.life / s.max); s.l.intensity = s.power * k * k;
+    }
+    for (const b of this.beams) {
+      if (b.life <= 0) { b.m.visible = false; continue; }
+      b.life -= dt; const k = Math.max(0, b.life / b.max);
+      (b.m.material as THREE.MeshBasicMaterial).opacity = k;
+      b.m.scale.x = b.m.scale.y = 0.02 + 0.09 * k;
     }
     for (const r of this.rings) {
       if (r.life <= 0) { r.m.visible = false; continue; }

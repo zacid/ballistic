@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 export const N = 32;          // cells per side
 export const CELL = 1.25;     // metres per cell
@@ -19,11 +20,23 @@ export function rng(seed: number) {
 const TOY = [0xff5a4e, 0x2f8cff, 0xffc83a, 0x34c77b, 0xf6efe2, 0x9b6bff];
 
 export interface Spot { x: number; z: number }
+export type MapId = 'random' | 'fort' | 'towers';
+/** How far above a shot a bare platform floor can be and still be skimmed onto. */
+export const CLIMB = 1.4;
+export const STEP = 0.35;           // how high a ball can roll up without a ramp
+
+/** Up-slope direction of a ramp cell: 0 +x, 1 -x, 2 +z, 3 -z. */
+type RampDir = 0 | 1 | 2 | 3;
 
 export class Arena {
-  h: Uint8Array;       // block height in cubes, 0 = open
+  h: Uint8Array;       // wall height in cubes above the floor, 0 = open
   col: Int8Array;
+  fl: Uint8Array;      // floor level in cubes (1 = raised platform)
+  ramp: Int8Array;     // -1, or the up-slope direction
+  rampBase: Float32Array; // ramp height at its low edge, in cubes
   spawns: Spot[] = [];
+  homeSpawns: Spot[] = [];   // hand-made maps: where the humans start in co-op
+  pickupKinds: ('health' | 'nades' | 'mega')[] = [];
   pickups: Spot[] = [];
   group = new THREE.Group();
   floorCanvas!: HTMLCanvasElement;
@@ -41,22 +54,46 @@ export class Arena {
   n: number;
   half: number;
 
-  constructor(public seed: number, size = N) {
+  constructor(public seed: number, size = N, public map: MapId = 'random') {
+    if (map === 'fort') size = 30;
+    if (map === 'towers') size = 22;
     this.n = size; this.half = (size * CELL) / 2;
     this.h = new Uint8Array(size * size); this.col = new Int8Array(size * size).fill(-1);
+    this.fl = new Uint8Array(size * size); this.ramp = new Int8Array(size * size).fill(-1); this.rampBase = new Float32Array(size * size);
     this.floorSize = size * CELL + FLOOR_MARGIN * 2;
-    this.generate();
+    if (map === 'fort') this.buildFort();
+    else if (map === 'towers') this.buildTowers();
+    else this.generate();
     this.build();
   }
 
-  idx(i: number, j: number) { return j * this.n + i; }
-  solidCell(i: number, j: number) {
-    if (i < 0 || j < 0 || i >= this.n || j >= this.n) return true;
-    return this.h[j * this.n + i] > 0;
+  // ---------- heights ----------
+  /** Height (m) of whatever stands in a cell: platform plus walls. Ramps never block. */
+  top(i: number, j: number) {
+    if (i < 0 || j < 0 || i >= this.n || j >= this.n) return 99;
+    const k = j * this.n + i;
+    if (this.ramp[k] >= 0) return -1;
+    return (this.fl[k] + this.h[k]) * CELL;
   }
+  /** Ground height (m) under a point, following ramps. */
+  floorAt(x: number, z: number) {
+    const i = this.cellOf(x), j = this.cellOf(z);
+    if (i < 0 || j < 0 || i >= this.n || j >= this.n) return 0;
+    const k = j * this.n + i, d = this.ramp[k];
+    if (d < 0) return this.fl[k] * CELL;
+    const fx = (x + this.half) / CELL - i, fz = (z + this.half) / CELL - j;
+    const t = d === 0 ? fx : d === 1 ? 1 - fx : d === 2 ? fz : 1 - fz;
+    return (this.rampBase[k] + 0.5 * Math.max(0, Math.min(1, t))) * CELL;
+  }
+  /** Floor height at a cell centre (for pathfinding). */
+  private level(i: number, j: number) { const k = j * this.n + i; return (this.ramp[k] >= 0 ? this.rampBase[k] + 0.25 : this.fl[k]) * CELL; }
+
+  idx(i: number, j: number) { return j * this.n + i; }
+  /** A cell a ball standing at height y can't roll into. Default y: ground level. */
+  solidCell(i: number, j: number, y = 0) { return this.top(i, j) > y + STEP; }
   cellOf(x: number) { return Math.floor((x + this.half) / CELL); }
   center(i: number) { return i * CELL - this.half + CELL / 2; }
-  solidAt(x: number, z: number) { return this.solidCell(this.cellOf(x), this.cellOf(z)); }
+  solidAt(x: number, z: number, y = 0) { return this.solidCell(this.cellOf(x), this.cellOf(z), y); }
 
   private generate() {
     const r = rng(this.seed);
@@ -144,10 +181,98 @@ export class Arena {
     this.pickups.push({ x: 0, z: 0 });
   }
 
+  // ---------- hand-made maps ----------
+  private wall(i: number, j: number, h: number, c: number) { const k = this.idx(i, j); this.h[k] = h; this.col[k] = c; }
+  private plat(i: number, j: number) { this.fl[this.idx(i, j)] = 1; }
+  private rampAt(i: number, j: number, dir: RampDir, base: number) { const k = this.idx(i, j); this.ramp[k] = dir; this.rampBase[k] = base; }
+  /** Apply f at a cell and its three mirror images (left-right, top-bottom, both). */
+  private mirror4(i: number, j: number, f: (i: number, j: number) => void) {
+    const n = this.n - 1, pts = new Set([`${i},${j}`, `${n - i},${j}`, `${i},${n - j}`, `${n - i},${n - j}`]);
+    for (const p of pts) { const [a, b] = p.split(',').map(Number); f(a, b); }
+  }
+  private outerWall() {
+    for (let k = 0; k < this.n; k++) for (const [x, y] of [[k, 0], [k, this.n - 1], [0, k], [this.n - 1, k]]) this.wall(x, y, 2, 4);
+  }
+  private at(i: number) { return this.center(i); }
+  /** Spawn points: open 3x3 patches, on whatever level they sit. */
+  private findSpawns(filter: (i: number, j: number) => boolean = () => true) {
+    const out: Spot[] = [];
+    for (let j = 2; j < this.n - 2; j++) for (let i = 2; i < this.n - 2; i++) {
+      if (!filter(i, j)) continue;
+      const k = this.idx(i, j); if (this.h[k] || this.ramp[k] >= 0) continue;
+      const lv = this.fl[k]; let ok = true;
+      for (let y = -1; y <= 1 && ok; y++) for (let x = -1; x <= 1; x++) {
+        const kk = this.idx(i + x, j + y);
+        if (this.h[kk] || this.ramp[kk] >= 0 || this.fl[kk] !== lv) { ok = false; break; }
+      }
+      if (ok) out.push({ x: this.center(i), z: this.center(j) });
+    }
+    return out;
+  }
+
+  /** "Fort": a raised 10x10 keep with battlements, a ramp up each side, open ground around it. */
+  private buildFort() {
+    const n = this.n; // 30
+    this.outerWall();
+    const STONE = 4;
+    for (let j = 10; j <= 19; j++) for (let i = 10; i <= 19; i++) this.plat(i, j);
+    // battlements: gaps at the ramp mouths (14, 15) and two firing slots per side (12, 17)
+    const solid = new Set([10, 11, 13, 16, 18, 19]);
+    for (const k of solid) { this.wall(k, 10, 1, STONE); this.wall(k, 19, 1, STONE); this.wall(10, k, 1, STONE); this.wall(19, k, 1, STONE); }
+    // two-cell ramps up to each gate
+    for (const k of [14, 15]) {
+      this.rampAt(k, 8, 2, 0); this.rampAt(k, 9, 2, 0.5);     // north, climbing +z
+      this.rampAt(k, 21, 3, 0); this.rampAt(k, 20, 3, 0.5);   // south, climbing -z
+      this.rampAt(8, k, 0, 0); this.rampAt(9, k, 0, 0.5);     // west, climbing +x
+      this.rampAt(21, k, 1, 0); this.rampAt(20, k, 1, 0.5);   // east, climbing -x
+    }
+    // crates on the keep to hide behind
+    this.mirror4(12, 12, (i, j) => this.wall(i, j, 1, 2));
+    // outside: corner L-walls, pillars near the keep, low bars in front of each gate
+    for (const [i, j] of [[4, 4], [5, 4], [6, 4], [4, 5], [4, 6]]) this.mirror4(i, j, (a, b) => this.wall(a, b, 2, 1));
+    for (const [i, j] of [[7, 9], [9, 7]]) this.mirror4(i, j, (a, b) => this.wall(a, b, 3, 5));
+    for (const k of [13, 16]) { this.wall(k, 4, 1, 3); this.wall(k, n - 5, 1, 3); this.wall(4, k, 1, 3); this.wall(n - 5, k, 1, 3); }
+    for (const [i, j] of [[8, 3], [3, 8]]) this.mirror4(i, j, (a, b) => this.wall(a, b, 2, 0));
+    // pickups: mega in the keep, health in the keep's corners, grenades out in the field
+    this.pickups = [{ x: 0, z: 0 }]; this.pickupKinds = ['mega'];
+    this.mirror4(11, 11, (i, j) => { this.pickups.push({ x: this.at(i), z: this.at(j) }); this.pickupKinds.push('health'); });
+    this.mirror4(6, 6, (i, j) => { this.pickups.push({ x: this.at(i), z: this.at(j) }); this.pickupKinds.push('nades'); });
+    // health in front of each gate
+    for (const [x, z] of [[0, this.at(3)], [0, this.at(n - 4)], [this.at(3), 0], [this.at(n - 4), 0]]) { this.pickups.push({ x, z }); this.pickupKinds.push('health'); }
+    this.homeSpawns = this.findSpawns((i, j) => this.fl[this.idx(i, j)] === 1);
+    this.spawns = [...this.findSpawns((i, j) => this.fl[this.idx(i, j)] === 0 && Math.max(Math.abs(i - 14.5), Math.abs(j - 14.5)) > 9), ...this.homeSpawns];
+  }
+
+  /** "Towers": a 1v1 map with two raised towers in opposite corners and cover in the middle. */
+  private buildTowers() {
+    const n = this.n; // 22
+    this.outerWall();
+    const pt = (i: number, j: number, f: (i: number, j: number) => void) => { f(i, j); f(n - 1 - i, n - 1 - j); };   // point symmetry
+    for (let j = 2; j <= 6; j++) for (let i = 2; i <= 6; i++) pt(i, j, (a, b) => this.plat(a, b));
+    // tower walls on the outer and inner-corner sides, open towards the ramp
+    for (const [i, j] of [[2, 6], [3, 6], [6, 2], [6, 3], [6, 6]]) pt(i, j, (a, b) => this.wall(a, b, 1, 4));
+    pt(7, 4, (a, b) => this.rampAt(a, b, a < n / 2 ? 1 : 0, 0.5));
+    pt(8, 4, (a, b) => this.rampAt(a, b, a < n / 2 ? 1 : 0, 0));
+    pt(7, 5, (a, b) => this.rampAt(a, b, a < n / 2 ? 1 : 0, 0.5));
+    pt(8, 5, (a, b) => this.rampAt(a, b, a < n / 2 ? 1 : 0, 0));
+    // the other two corners: ground-level bunkers
+    for (const [i, j] of [[3, 15], [4, 15], [5, 15], [3, 16], [3, 17]]) pt(i, j, (a, b) => this.wall(a, b, 2, 1));
+    // middle: four L-walls around a small plaza, and pillars on the lanes
+    for (const [i, j] of [[8, 8], [9, 8], [8, 9]]) this.mirror4(i, j, (a, b) => this.wall(a, b, 1, 2));
+    pt(11, 4, (a, b) => this.wall(a, b, 2, 3)); pt(11, 5, (a, b) => this.wall(a, b, 2, 3));
+    pt(4, 10, (a, b) => this.wall(a, b, 3, 5)); pt(16, 10, (a, b) => this.wall(a, b, 3, 5));
+    this.pickups = [{ x: 0, z: 0 }]; this.pickupKinds = ['mega'];
+    pt(4, 4, (i, j) => { this.pickups.push({ x: this.at(i), z: this.at(j) }); this.pickupKinds.push('health'); });
+    pt(4, 17, (i, j) => { this.pickups.push({ x: this.at(i), z: this.at(j) }); this.pickupKinds.push('nades'); });
+    pt(13, 10, (i, j) => { this.pickups.push({ x: this.at(i), z: this.at(j) }); this.pickupKinds.push('health'); });
+    this.spawns = this.findSpawns();
+    this.homeSpawns = this.spawns;
+  }
+
   private build() {
     // Blocks: one rounded cube per stacked unit, instanced.
     let count = 0;
-    for (let k = 0; k < this.n * this.n; k++) count += this.h[k];
+    for (let k = 0; k < this.n * this.n; k++) count += this.h[k] + this.fl[k];
     const geo = new RoundedBoxGeometry(CELL * 0.98, CELL * 0.98, CELL * 0.98, 2, 0.14);
     const mat = new THREE.MeshStandardMaterial({ roughness: 0.42, metalness: 0.0 });
     const inst = new THREE.InstancedMesh(geo, mat, count);
@@ -159,16 +284,38 @@ export class Arena {
     const m = new THREE.Matrix4(); const c = new THREE.Color(); const r = rng(this.seed + 11);
     let n = 0;
     for (let j = 0; j < this.n; j++) for (let i = 0; i < this.n; i++) {
-      const hh = this.h[this.idx(i, j)];
-      for (let y = 0; y < hh; y++) {
+      const k = this.idx(i, j), hh = this.h[k], f = this.fl[k];
+      for (let y = 0; y < f + hh; y++) {
         m.makeTranslation(this.center(i), CELL * (y + 0.49), this.center(j));
         inst.setMatrixAt(n, m); proxy.setMatrixAt(n, m);
-        c.setHex(TOY[Math.max(0, this.col[this.idx(i, j)])]);
-        c.offsetHSL(0, 0, (r() - 0.5) * 0.06 + (y % 2 ? 0.025 : 0));
+        // raised floors are sandstone with a checker; walls keep their toy colours
+        if (y < f) { c.setHex(((i + j) & 1) ? 0xe6d3b3 : 0xdcc7a4); c.offsetHSL(0, 0, (r() - 0.5) * 0.03); }
+        else { c.setHex(TOY[Math.max(0, this.col[k])]); c.offsetHSL(0, 0, (r() - 0.5) * 0.06 + (y % 2 ? 0.025 : 0)); }
         inst.setColorAt(n, c); n++;
       }
     }
     this.group.add(inst, proxy);
+
+    // Ramps: wedges, merged into one mesh
+    const wedges: THREE.BufferGeometry[] = [];
+    for (let j = 0; j < this.n; j++) for (let i = 0; i < this.n; i++) {
+      const k = this.idx(i, j), d = this.ramp[k]; if (d < 0) continue;
+      const lo = this.rampBase[k] * CELL, hi = (this.rampBase[k] + 0.5) * CELL, w = CELL / 2;
+      // corners in local x/z; height depends on position along the slope
+      const hAt = (x: number, z: number) => { const t = d === 0 ? (x + w) / CELL : d === 1 ? (w - x) / CELL : d === 2 ? (z + w) / CELL : (w - z) / CELL; return lo + (hi - lo) * t; };
+      const g = new THREE.BoxGeometry(CELL * 0.99, 1, CELL * 0.99);
+      const pos = g.attributes.position as THREE.BufferAttribute;
+      for (let v = 0; v < pos.count; v++) {
+        const x = pos.getX(v), z = pos.getZ(v);
+        pos.setY(v, pos.getY(v) > 0 ? hAt(x, z) : 0);
+      }
+      g.computeVertexNormals(); g.translate(this.center(i), 0, this.center(j));
+      wedges.push(g);
+    }
+    if (wedges.length) {
+      const rm = new THREE.Mesh(mergeGeometries(wedges)!, new THREE.MeshStandardMaterial({ color: 0xd2bd98, roughness: 0.7 }));
+      rm.castShadow = true; rm.receiveShadow = true; this.group.add(rm);
+    }
 
     // Floor: a painted canvas so splats can be drawn onto it permanently.
     this.floorBase = document.createElement('canvas');
@@ -265,11 +412,15 @@ export class Arena {
     this.markDirty(cx, cy, size * px + 2);
   }
 
-  /** First wall hit along a segment (fraction 0..1), or -1. Amanatides–Woo DDA. */
-  raycast(x0: number, z0: number, x1: number, z1: number): number {
+  /**
+   * First blocking cell along a segment (fraction 0..1), or -1. Amanatides–Woo DDA.
+   * y: height of the ray (a cell blocks when it stands taller). ignoreEnd: don't count the
+   * destination cell, for line-of-sight to something standing on a raised cell.
+   */
+  raycast(x0: number, z0: number, x1: number, z1: number, y = 0.55, ignoreEnd = false, climb = 0): number {
     const dx = x1 - x0, dz = z1 - z0;
     let i = this.cellOf(x0), j = this.cellOf(z0);
-    if (this.solidCell(i, j)) return 0;
+    if (this.blocks(i, j, y, climb)) return 0;
     const ei = this.cellOf(x1), ej = this.cellOf(z1);
     const si = dx > 0 ? 1 : -1, sj = dz > 0 ? 1 : -1;
     const bx = (i + (si > 0 ? 1 : 0)) * CELL - this.half, bz = (j + (sj > 0 ? 1 : 0)) * CELL - this.half;
@@ -280,18 +431,27 @@ export class Arena {
       let t: number;
       if (tMaxX < tMaxZ) { t = tMaxX; tMaxX += tdx; i += si; } else { t = tMaxZ; tMaxZ += tdz; j += sj; }
       if (t > 1) return -1;
-      if (this.solidCell(i, j)) return t;
+      if (ignoreEnd && i === ei && j === ej) return -1;
+      if (this.blocks(i, j, y, climb)) return t;
     }
     return -1;
   }
+  /** Does a cell stop a ray at height y? climb: bare raised floor this much higher still lets it through
+   *  (shots and sight lines skim up onto platforms; only walls give cover). */
+  blocks(i: number, j: number, y: number, climb = 0) {
+    const tp = this.top(i, j);
+    if (tp <= y) return false;
+    if (climb > 0 && tp < 90 && this.h[j * this.n + i] === 0) return tp > y + climb;
+    return true;
+  }
 
   /** Push a circle out of walls. Returns collision normal (or null) and mutates p. */
-  collide(p: { x: number; z: number }, r: number): { nx: number; nz: number } | null {
+  collide(p: { x: number; z: number }, r: number, y = 0): { nx: number; nz: number } | null {
     let hit: { nx: number; nz: number } | null = null;
     const ci = this.cellOf(p.x), cj = this.cellOf(p.z);
     for (let pass = 0; pass < 2; pass++) {
       for (let j = cj - 1; j <= cj + 1; j++) for (let i = ci - 1; i <= ci + 1; i++) {
-        if (!this.solidCell(i, j)) continue;
+        if (!this.solidCell(i, j, y)) continue;
         const minx = i * CELL - this.half, minz = j * CELL - this.half;
         const qx = Math.max(minx, Math.min(p.x, minx + CELL));
         const qz = Math.max(minz, Math.min(p.z, minz + CELL));
@@ -314,9 +474,16 @@ export class Arena {
   }
 
   /** A* over the grid, returns world waypoints (excluding start). */
+  /** Can a ball roll from cell a to its neighbour b (up a ramp or step, or drop off an edge)? */
+  private walkable(ai: number, aj: number, bi: number, bj: number) {
+    if (bi < 0 || bj < 0 || bi >= this.n || bj >= this.n) return false;
+    return this.top(bi, bj) <= this.level(ai, aj) + 0.7;
+  }
+
   path(x0: number, z0: number, x1: number, z1: number): Spot[] {
     const si = this.cellOf(x0), sj = this.cellOf(z0), ti = this.cellOf(x1), tj = this.cellOf(z1);
-    if (this.solidCell(ti, tj)) return [];
+    if (ti < 0 || tj < 0 || ti >= this.n || tj >= this.n || si < 0 || sj < 0 || si >= this.n || sj >= this.n) return [];
+    if (this.h[this.idx(ti, tj)]) return [];
     const start = this.idx(si, sj), goal = this.idx(ti, tj);
     const g = new Float32Array(this.n * this.n).fill(Infinity), from = new Int32Array(this.n * this.n).fill(-1);
     const open: number[] = [start]; const f = new Float32Array(this.n * this.n).fill(Infinity);
@@ -332,8 +499,8 @@ export class Arena {
       for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
         if (!dx && !dy) continue;
         const nx = cx + dx, ny = cy + dy;
-        if (this.solidCell(nx, ny)) continue;
-        if (dx && dy && (this.solidCell(cx + dx, cy) || this.solidCell(cx, cy + dy))) continue;
+        if (!this.walkable(cx, cy, nx, ny)) continue;
+        if (dx && dy && (!this.walkable(cx, cy, cx + dx, cy) || !this.walkable(cx, cy, cx, cy + dy))) continue;
         const nk = this.idx(nx, ny); if (closed[nk]) continue;
         const ng = g[cur] + (dx && dy ? 1.414 : 1);
         if (ng < g[nk]) { g[nk] = ng; f[nk] = ng + Math.hypot(ti - nx, tj - ny); from[nk] = cur; if (!inOpen[nk]) { open.push(nk); inOpen[nk] = 1; } }
@@ -347,17 +514,17 @@ export class Arena {
     const smooth: Spot[] = []; let ax = x0, az = z0;
     for (let n = 0; n < out.length; n++) {
       const nxt = out[n + 1];
-      if (nxt && this.clearPath(ax, az, nxt.x, nxt.z, 0.45)) continue;
+      if (nxt && this.floorAt(nxt.x, nxt.z) === this.floorAt(ax, az) && this.clearPath(ax, az, nxt.x, nxt.z, 0.45, this.floorAt(ax, az))) continue;
       smooth.push(out[n]); ax = out[n].x; az = out[n].z;
     }
     return smooth;
   }
 
   /** Line of travel clear for a ball of radius r (samples three parallel rays). */
-  clearPath(x0: number, z0: number, x1: number, z1: number, r: number) {
+  clearPath(x0: number, z0: number, x1: number, z1: number, r: number, y = 0) {
     const dx = x1 - x0, dz = z1 - z0, l = Math.hypot(dx, dz) || 1;
-    const ox = (-dz / l) * r, oz = (dx / l) * r;
-    return this.raycast(x0, z0, x1, z1) < 0 && this.raycast(x0 + ox, z0 + oz, x1 + ox, z1 + oz) < 0 && this.raycast(x0 - ox, z0 - oz, x1 - ox, z1 - oz) < 0;
+    const ox = (-dz / l) * r, oz = (dx / l) * r, ry = y + STEP;
+    return this.raycast(x0, z0, x1, z1, ry) < 0 && this.raycast(x0 + ox, z0 + oz, x1 + ox, z1 + oz, ry) < 0 && this.raycast(x0 - ox, z0 - oz, x1 - ox, z1 - oz, ry) < 0;
   }
 
   /**

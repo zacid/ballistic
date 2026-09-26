@@ -1,4 +1,5 @@
 import type { Game } from './game';
+import { CLIMB } from './arena';
 import type { Babo } from './babo';
 import { BALL, GRENADE, WEAPONS } from './config';
 
@@ -40,7 +41,7 @@ export function thinkBot(g: Game, b: Babo, dt: number, diff: { react: number; ai
       if (o === b || !o.alive || !g.canDamage(b, o)) continue;
       const d = Math.hypot(o.x - b.x, o.z - b.z);
       if (d > 20) continue;
-      const vis = g.arena.raycast(b.x, b.z, o.x, o.z) < 0;
+      const vis = g.arena.raycast(b.x, b.z, o.x, o.z, b.y + 0.55, true, CLIMB) < 0;
       if (!vis && d > 9) continue;
       let s = d + (vis ? 0 : 8) - (o.id === br.target ? 3 : 0) - (o.hp < 40 ? 2.5 : 0) - (o.id === b.lastHitBy ? 3 : 0) + (o.spawnShield > 0 ? 6 : 0);
       if (s < bestScore) { bestScore = s; best = o.id; }
@@ -53,7 +54,7 @@ export function thinkBot(g: Game, b: Babo, dt: number, diff: { react: number; ai
   let visible = false, dist = 99;
   if (tAlive) {
     dist = Math.hypot(t.x - b.x, t.z - b.z);
-    visible = g.arena.raycast(b.x, b.z, t.x, t.z) < 0;
+    visible = g.arena.raycast(b.x, b.z, t.x, t.z, b.y + 0.55, true, CLIMB) < 0;
     if (visible) { br.seen += dt; br.lastSeenX = t.x; br.lastSeenZ = t.z; br.lastSeenT = g.clock; } else br.seen = 0;
   } else br.seen = 0;
 
@@ -62,11 +63,12 @@ export function thinkBot(g: Game, b: Babo, dt: number, diff: { react: number; ai
   const wantHealth = b.hp < 45;
   if (tAlive && visible && !wantHealth) {
     const dx = (t.x - b.x) / dist, dz = (t.z - b.z) / dist;
-    const pref = w.preferred;
+    const pref = w.kind === 'melee' ? 0 : w.preferred;
     let fwd = dist > pref + 1.2 ? 1 : dist < pref - 1.2 ? -0.8 : 0;
     if (br.strafeT <= 0) { br.strafe = Math.random() < 0.55 ? -br.strafe : br.strafe; br.strafeT = 0.5 + Math.random() * 1.1; }
-    mx = dx * fwd + -dz * br.strafe * 0.85;
-    mz = dz * fwd + dx * br.strafe * 0.85;
+    const sf = w.kind === 'melee' ? 0.25 : 0.85;   // spikes: go straight for them
+    mx = dx * fwd + -dz * br.strafe * sf;
+    mz = dz * fwd + dx * br.strafe * sf;
     br.path = [];
   } else {
     // pick a destination: health, last known enemy, or a random roam point
@@ -105,12 +107,12 @@ export function thinkBot(g: Game, b: Babo, dt: number, diff: { react: number; ai
   if (ml > 0.01) {
     mx /= ml; mz /= ml;
     const look = 1.1;
-    if (!g.arena.clearPath(b.x, b.z, b.x + mx * look, b.z + mz * look, BALL.radius * 0.9)) {
+    if (!g.arena.clearPath(b.x, b.z, b.x + mx * look, b.z + mz * look, BALL.radius * 0.9, b.y)) {
       let found = false;
       for (const a of [0.7, -0.7, 1.4, -1.4, 2.1, -2.1]) {
         const ca = Math.cos(a), sa = Math.sin(a);
         const rx = mx * ca - mz * sa, rz = mx * sa + mz * ca;
-        if (g.arena.clearPath(b.x, b.z, b.x + rx * look, b.z + rz * look, BALL.radius * 0.9)) { mx = rx; mz = rz; found = true; break; }
+        if (g.arena.clearPath(b.x, b.z, b.x + rx * look, b.z + rz * look, BALL.radius * 0.9, b.y)) { mx = rx; mz = rz; found = true; break; }
       }
       if (!found) { mx = -mx; mz = -mz; br.strafe = -br.strafe; }
     }
@@ -129,7 +131,7 @@ export function thinkBot(g: Game, b: Babo, dt: number, diff: { react: number; ai
   // --- aim
   let desired = br.aimA;
   if (tAlive && visible) {
-    const flight = dist / w.speed;
+    const flight = w.speed > 0 ? dist / w.speed : 0;
     const px = t.x + t.vx * flight * diff.lead, pz = t.z + t.vz * flight * diff.lead;
     if (br.errT <= 0) { br.errT = 0.25 + Math.random() * 0.3; br.err = (Math.random() - 0.5) * 2 * diff.aimErr; }
     desired = Math.atan2(pz - b.z, px - b.x) + br.err;
@@ -140,12 +142,13 @@ export function thinkBot(g: Game, b: Babo, dt: number, diff: { react: number; ai
   b.aimX = Math.cos(br.aimA); b.aimZ = Math.sin(br.aimA);
 
   // --- trigger
-  const range = w.speed * w.life * (w.kind === 'rocket' ? 0.6 : 0.95);
+  const range = (w.range ?? w.speed * w.life) * (w.kind === 'rocket' ? 0.6 : 0.95);
+  b.aimDist = tAlive ? dist : 8;
   const aimed = Math.abs(da) < (w.pellets > 1 ? 0.35 : 0.2);
-  b.fire = !!(tAlive && visible && br.seen > diff.react && aimed && dist < range && !(w.kind === 'rocket' && dist < 2.6) && t.spawnShield <= 0);
+  b.fire = !!(tAlive && visible && br.seen > diff.react && aimed && dist < range && !(w.kind === 'rocket' && dist < 2.6) && !(w.kind === 'lob' && dist < 3.2) && w.kind !== 'melee' && t.spawnShield <= 0);
   if (b.fire && w.kind === 'rocket') {
     // don't blast a wall right next to us
-    if (g.arena.raycast(b.x, b.z, b.x + b.aimX * 2.2, b.z + b.aimZ * 2.2) >= 0) b.fire = false;
+    if (g.arena.raycast(b.x, b.z, b.x + b.aimX * 2.2, b.z + b.aimZ * 2.2, b.y + 0.55, false, CLIMB) >= 0) b.fire = false;
   }
   if (b.ammo <= 0 || (!visible && b.ammo < WEAPONS[b.weapon].clip * 0.5)) g.reload(b);
 
@@ -170,7 +173,7 @@ export function thinkBot(g: Game, b: Babo, dt: number, diff: { react: number; ai
     }
   }
   // keep ramming while the spikes are out
-  if (b.abT > 0 && b.ability === 'spikes' && tAlive && visible) { b.moveX = (t.x - b.x) / dist; b.moveZ = (t.z - b.z) / dist; }
+  if (((b.abT > 0 && b.ability === 'spikes') || w.kind === 'melee') && tAlive && visible && dist < 6) { b.moveX = (t.x - b.x) / dist; b.moveZ = (t.z - b.z) / dist; }
 }
 
 function nearestPickup(g: Game, b: Babo, kinds: string[]) {

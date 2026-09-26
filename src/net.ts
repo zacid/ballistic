@@ -17,12 +17,12 @@ export type NetEvent =
   | { k: 'hit'; v: number; a: number; d: number; x: number; z: number; y: number }
   | { k: 'die'; v: number; by: number }
   | { k: 'nade'; o: number; x: number; y: number; z: number; vx: number; vy: number; vz: number }
-  | { k: 'boom'; o: number; x: number; z: number; r: number }
+  | { k: 'boom'; o: number; x: number; z: number; r: number; y?: number }
   | { k: 'pick'; i: number };
 
-export interface StartOffer { e: number; mode: ModeId; seed: number; guest: string; roster: RosterEntry[]; diff: string }
+export interface StartOffer { e: number; mode: ModeId; seed: number; guest: string; roster: RosterEntry[]; diff: string; map?: string }
 export interface RosterEntry { id: number; name: string; color: number; team: number; human: boolean; peer?: string }
-export interface HostState { e: number; st: 'c' | 'p' | 'o'; t: number; k: number[]; d: number[] }
+export interface HostState { e: number; st: 'c' | 'p' | 'o'; t: number; k: number[]; d: number[]; g?: number[] }
 
 export interface Peerish { peer: string; isMe: boolean; sameTab: boolean; presence: any; updatedAt: number }
 

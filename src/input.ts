@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Game } from './game';
 import type { Babo } from './babo';
-import { WeaponId, WEAPONS } from './config';
+import { PICKABLE, WEAPONS } from './config';
 
 const $ = (id: string) => document.getElementById(id)!;
 
@@ -61,8 +61,8 @@ export class Input {
         if (k === 'g' || k === 'q') this.nade();
         if (k === ' ' || k === 'shift') { e.preventDefault(); this.abilityQueued = true; }
         if (k === 'r' && this.g.player.alive) this.g.reload(this.g.player);
-        const map: Record<string, WeaponId> = { '1': 'shotgun', '2': 'chaingun', '3': 'rocket' };
-        if (map[k]) this.g.hud.pickWeapon(map[k]);
+        const n = Number(k);
+        if (n >= 1 && n <= PICKABLE.length && k.length === 1) this.g.hud.pickWeapon(PICKABLE[n - 1]);
       }
       if (k === 'enter' && (this.g.state === 'menu' || (this.g.state === 'over' && !this.g.online))) this.g.start();
     }
@@ -79,8 +79,10 @@ export class Input {
   aimWorld(out: THREE.Vector3) {
     const p = this.g.player;
     if (this.touch) {
-      out.set(p.x + this.touchAim.x * 7, 0.55, p.z + this.touchAim.z * 7); return out;
+      out.set(p.x + this.touchAim.x * 7, p.y + 0.55, p.z + this.touchAim.z * 7); return out;
     }
+    // aim on the plane at the ball's own height, so aiming stays true up on the battlements
+    this.plane.constant = -((p?.y ?? 0) + 0.55);
     this.ray.setFromCamera(this.mouse, this.g.r.camera);
     if (this.ray.ray.intersectPlane(this.plane, this.hit)) out.copy(this.hit);
     return out;
@@ -104,6 +106,7 @@ export class Input {
     const a = new THREE.Vector3(); this.aimWorld(a);
     const dx = a.x - b.x, dz = a.z - b.z, l = Math.hypot(dx, dz);
     if (l > 0.2) { b.aimX = dx / l; b.aimZ = dz / l; }
+    b.aimDist = l;
     b.fire = this.touch ? this.touchAim.active : this.mouseDown;
     if (this.abilityQueued) { b.wantAbility = true; this.abilityQueued = false; }
     // reloading an empty clip automatically; tapping fire while reloading does nothing

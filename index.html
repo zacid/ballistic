@@ -198,6 +198,12 @@ body.touch #wpn { left: auto; right: calc(14px + var(--sa-r)); transform: none; 
 .steps { margin: 0; padding-left: 20px; }
 .steps b { color: var(--cream); }
 #result-sub { margin-top: 6px; font: 400 22px var(--display); color: var(--cream); }
+#row3 { display: flex; gap: 28px; flex-wrap: wrap; justify-content: center; }
+.mode-btn.wide { grid-column: 1 / -1; background: linear-gradient(#e2cfff, #b38cff); }
+.lobby-opts { display: grid; grid-template-columns: 1fr 1.4fr; gap: 12px; }
+.lobby-opts .seg button { padding: 5px 4px; font-size: 13px; }
+.kit-note { font-style: normal; font-size: 13px; font-weight: 700; color: var(--muted); padding: 4px 0; }
+#feed .spiked span { color: #ff8a8a; font-weight: 900; }
 #row2 { display: flex; gap: 28px; flex-wrap: wrap; justify-content: center; }
 #swatches { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
 .swatch { width: 36px; height: 36px; border-radius: 50%; border: 3px solid var(--ink); cursor: pointer; box-shadow: inset -5px -5px 0 rgba(0,0,0,0.18), inset 4px 4px 0 rgba(255,255,255,0.35); transition: transform .1s; }
@@ -345,13 +351,17 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
 <div id="menu" class="screen">
   <h1 id="title">BALLISTIC<span class="dot">.</span></h1>
   <div id="tagline">Eight toy balls, three guns, one arena. First to 20 pops wins.</div>
-  <div class="label">PICK YOUR GUN</div>
+  <div class="label" id="cards-label">PICK YOUR GUN</div>
   <div id="cards"></div>
   <div class="label">SPACEBAR ABILITY</div>
   <div id="abilities"></div>
   <div id="row2">
     <div><div class="label">YOUR COLOUR</div><div id="swatches"></div></div>
     <div><div class="label">BOTS</div><div class="seg" id="difficulty-seg"></div></div>
+  </div>
+  <div id="row3">
+    <div><div class="label">SOLO MODE</div><div class="seg" id="solo-seg"></div></div>
+    <div><div class="label">ARENA</div><div class="seg" id="map-seg"></div></div>
   </div>
   <div id="play-row">
     <button class="big-btn" id="play">PLAY SOLO</button>
@@ -374,7 +384,12 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
     <div id="lobby-diag" class="tip"></div>
     <div id="lobby-modes">
       <button class="mode-btn" id="lobby-duel"><b>1v1</b><span>You against your friend. First to 10 pops.</span></button>
-      <button class="mode-btn" id="lobby-coop"><b>2 vs bots</b><span>Team up against 5 bots. First team to 30.</span></button>
+      <button class="mode-btn" id="lobby-coop"><b>2 vs bots</b><span>Hold the fort together against 5 bots. First team to 30.</span></button>
+      <button class="mode-btn wide" id="lobby-ggduel"><b>Gun Game 1v1</b><span>Climb 8 weapons, 2 pops each. Win with a spikes pop. Getting spiked drops you a level.</span></button>
+    </div>
+    <div class="lobby-opts">
+      <div><div class="kit-label">BOTS</div><div class="seg" id="lobby-difficulty-seg"></div></div>
+      <div><div class="kit-label">ARENA</div><div class="seg" id="lobby-map-seg"></div></div>
     </div>
     <div class="kit-label">YOUR LOADOUT</div>
     <div class="kit" id="lobby-kit"></div>
@@ -402,8 +417,9 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
 <div id="result" class="screen">
   <h1 id="result-title">WINNER!</h1>
   <div id="result-sub" class="shadowtext"></div>
-  <table class="board"><thead><tr><th>#</th><th>BALL</th><th>POPS</th><th>POPPED</th></tr></thead><tbody id="result-table"></tbody></table>
+  <table class="board"><thead><tr><th>#</th><th>BALL</th><th id="result-mid">POPS</th><th>POPPED</th></tr></thead><tbody id="result-table"></tbody></table>
   <button class="big-btn" id="again">PLAY AGAIN</button>
+  <button class="ghost-btn" id="to-lobby" hidden>BACK TO LOBBY</button>
   <button class="ghost-btn" id="to-menu">CHANGE LOADOUT</button>
 </div>
 

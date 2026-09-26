@@ -2,9 +2,16 @@
 
 Rolling toy balls with guns. A top-down arena shooter in the spirit of Babo Violent 2, built with Three.js.
 
-- **Solo:** free-for-all against 7 bots, first to 20 pops.
-- **With a friend:** 1v1 (first to 10) or the two of you against 5 bots (first team to 30), joined with an invite link.
-- Three guns (shotgun, chaingun, rockets), grenades, and a Spacebar ability (dash, spikes, bubble, shockwave).
+- **Solo:** free-for-all against 7 bots (first to 20 pops), or Gun Game.
+- **With a friend:** 1v1 (first to 10), the two of you against 5 bots (first team to 30), or Gun Game 1v1, joined with an invite link. Rematch goes straight back in without the lobby.
+- Six guns (shotgun, chaingun, rockets, railgun, bouncer, pistol), grenades, and a Spacebar ability (dash, spikes, bubble, shockwave).
+- **Arenas:** a fresh random arena each match, or two hand-made ones with raised floors: **Fort** (a keep with ramps and battlements, the default for 2 vs bots) and **Towers** (two raised corner towers).
+
+### Gun Game
+
+Every pop moves you one weapon up the ladder: rockets, railgun, chaingun, bouncer, shotgun, pistol, unlimited grenades, then spikes. Pop someone with spikes to win. One pop per level against bots, two in the 1v1. Getting spiked (or popping yourself) drops you a level. The spikes ability and grenade pickups are off in this mode.
+
+Shots skim up onto raised floors on their own (there's no vertical aim), so only walls and battlements give cover.
 
 Everything is generated in code: no image, model or audio files. Sounds are synthesised with Web Audio.
 
@@ -17,7 +24,7 @@ Everything is generated in code: no image, model or audio files. Sounds are synt
 | Grenade | Right click, G or Q |
 | Ability | Space or Shift |
 | Reload | R |
-| Switch gun (next respawn) | 1 2 3 |
+| Switch gun (next respawn) | 1 to 6 |
 | Scores | Tab |
 | Performance panel | F |
 | Pause / mute | P / M |
@@ -104,7 +111,7 @@ The relay uses one SQLite-backed Durable Object per room with the WebSocket Hibe
 | `src/peerroom.ts` | Direct WebRTC transport (PeerJS) |
 | `relay/src/index.ts` | The Cloudflare Worker relay |
 | `src/bots.ts` | Bot AI: targeting, pathing, strafing, grenades, abilities |
-| `src/arena.ts` | Seeded arena generation, collision, A*, floor paint |
+| `src/arena.ts` | Random and hand-made arenas, raised floors and ramps, collision, A*, floor paint |
 | `src/render.ts` | Renderer, shadows, GTAO, bloom, quality presets, GPU timing |
 | `src/fx.ts` | Particles, smoke, flashes, shockwave rings |
 | `src/audio.ts` | Synthesised sound effects |
@@ -112,6 +119,8 @@ The relay uses one SQLite-backed Durable Object per room with the WebSocket Hibe
 | `src/config.ts` | Weapons, abilities, modes and other tunables |
 
 ## Tests
+
+`tests/solo.mjs` fast-forwards bot-only matches (Gun Game on Fort and Towers, free-for-all) and checks for errors. `tests/gg.mjs` plays online Gun Game 1v1 through the local servers, checks the ladder syncs, and tests the rematch.
 
 `tests/p2p.mjs` runs two headless browsers against a local PeerJS server, creates an invite, joins it, plays a duel and checks that kills and disconnects sync:
 

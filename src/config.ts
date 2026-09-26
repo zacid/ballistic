@@ -1,13 +1,17 @@
 // Tunables for the whole game. Units: metres, seconds.
 
-export type WeaponId = 'shotgun' | 'chaingun' | 'rocket';
+export type WeaponId = 'shotgun' | 'chaingun' | 'rocket' | 'railgun' | 'bouncer' | 'pistol' | 'grenade' | 'spikes';
 
 export interface WeaponDef {
   id: WeaponId;
   name: string;
   blurb: string;
   icon: string;
-  kind: 'bullet' | 'rocket';
+  kind: 'bullet' | 'rocket' | 'rail' | 'bounce' | 'lob' | 'melee';
+  hidden?: boolean;    // Gun Game only, not in the loadout picker
+  semi?: boolean;      // one shot per click for players
+  bounces?: number;    // wall bounces before a projectile dies
+  range?: number;      // hitscan / bot engagement range when speed*life doesn't apply
   rate: number;        // shots per second
   clip: number;
   reload: number;      // seconds
@@ -27,16 +31,16 @@ export interface WeaponDef {
 
 export const WEAPONS: Record<WeaponId, WeaponDef> = {
   shotgun: {
-    id: 'shotgun', name: 'Shotgun', blurb: 'Nine pellets. Brutal up close, weak at range.', icon: 'SG',
-    kind: 'bullet', rate: 1.2, clip: 6, reload: 1.5, pellets: 9, spread: 0.34, speed: 42, life: 0.26,
-    damage: 12, falloff: 0.55, knock: 1.7, recoil: 2.2, color: 0xffb43a, preferred: 3,
+    id: 'shotgun', name: 'Shotgun', blurb: 'Ten pellets. Brutal up close, weak at range.', icon: 'SG',
+    kind: 'bullet', rate: 1.2, clip: 6, reload: 1.5, pellets: 10, spread: 0.42, speed: 42, life: 0.26,
+    damage: 11, falloff: 0.55, knock: 1.7, recoil: 2.2, color: 0xffb43a, preferred: 3,
     stats: { power: 1, range: 0.3, rate: 0.3 },
   },
   chaingun: {
     id: 'chaingun', name: 'Chaingun', blurb: 'A hose of lead. Keep your aim on them.', icon: 'CG',
-    kind: 'bullet', rate: 13, clip: 45, reload: 1.8, pellets: 1, spread: 0.07, speed: 52, life: 0.5,
-    damage: 7, knock: 0.45, recoil: 0.18, color: 0xfff27a, preferred: 7,
-    stats: { power: 0.55, range: 0.8, rate: 1 },
+    kind: 'bullet', rate: 13, clip: 50, reload: 1.8, pellets: 1, spread: 0.05, speed: 52, life: 0.5,
+    damage: 9, knock: 0.6, recoil: 0.18, color: 0xfff27a, preferred: 7,
+    stats: { power: 0.65, range: 0.8, rate: 1 },
   },
   rocket: {
     id: 'rocket', name: 'Rockets', blurb: 'Slow, loud, splash damage. Rocket-jump off walls.', icon: 'RL',
@@ -44,7 +48,41 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     damage: 25, knock: 2, recoil: 3, splash: { radius: 2.8, damage: 45, knock: 15 }, color: 0xff6a3d, preferred: 7.5,
     stats: { power: 0.75, range: 0.7, rate: 0.24 },
   },
+  railgun: {
+    id: 'railgun', name: 'Railgun', blurb: 'Instant beam that pierces every ball in a line.', icon: 'RG',
+    kind: 'rail', rate: 0.75, clip: 3, reload: 2.2, pellets: 1, spread: 0, speed: 0, life: 0, range: 40,
+    damage: 70, knock: 9, recoil: 3.5, color: 0xb38cff, preferred: 11,
+    stats: { power: 0.9, range: 1, rate: 0.15 },
+  },
+  bouncer: {
+    id: 'bouncer', name: 'Bouncer', blurb: 'Glowing balls that ricochet off walls three times.', icon: 'BN',
+    kind: 'bounce', rate: 3.2, clip: 12, reload: 1.8, pellets: 1, spread: 0.06, speed: 26, life: 1.4, bounces: 3,
+    damage: 20, knock: 2.2, recoil: 0.6, color: 0x5cffb0, preferred: 6,
+    stats: { power: 0.6, range: 0.6, rate: 0.5 },
+  },
+  pistol: {
+    id: 'pistol', name: 'Pistol', blurb: 'Accurate. Fires as fast as you can click.', icon: 'PS',
+    kind: 'bullet', rate: 6, clip: 12, reload: 1.2, pellets: 1, spread: 0.02, speed: 60, life: 0.45, semi: true,
+    damage: 17, knock: 0.9, recoil: 0.5, color: 0xcfe8ff, preferred: 7,
+    stats: { power: 0.45, range: 0.75, rate: 0.6 },
+  },
+  grenade: {
+    id: 'grenade', name: 'Grenades', blurb: 'Unlimited grenades. Click to throw.', icon: 'GR', hidden: true,
+    kind: 'lob', rate: 1.4, clip: 99, reload: 0.1, pellets: 1, spread: 0, speed: 0, life: 0, range: 12,
+    damage: 0, knock: 0, recoil: 0, color: 0x7ad48a, preferred: 7,
+    stats: { power: 0.8, range: 0.6, rate: 0.3 },
+  },
+  spikes: {
+    id: 'spikes', name: 'Spikes', blurb: 'No gun. Ram someone to pop them.', icon: 'SP', hidden: true,
+    kind: 'melee', rate: 1, clip: 1, reload: 0.1, pellets: 1, spread: 0, speed: 0, life: 0, range: 1.5,
+    damage: 0, knock: 0, recoil: 0, color: 0xe8ecf5, preferred: 0,
+    stats: { power: 1, range: 0, rate: 1 },
+  },
 };
+/** Guns you can pick in the loadout (Gun Game adds the hidden ones). */
+export const PICKABLE = (Object.keys(WEAPONS) as WeaponId[]).filter(w => !WEAPONS[w].hidden);
+/** Gun Game ladder: strongest first, the spikes finale is the "knife". */
+export const LADDER: WeaponId[] = ['rocket', 'railgun', 'chaingun', 'bouncer', 'shotgun', 'pistol', 'grenade', 'spikes'];
 
 export const GRENADE = { fuse: 1.5, radius: 3.4, damage: 75, knock: 18, maxThrow: 12, start: 2, max: 4, cooldown: 0.6 };
 
@@ -60,13 +98,22 @@ export const BALL = {
   respawn: 2.2,
 };
 
-export type ModeId = 'solo' | 'duel' | 'coop';
-export interface ModeDef { id: ModeId; name: string; blurb: string; bots: number; limit: number; time: number; teams: boolean; size: number; online: boolean }
+export type ModeId = 'solo' | 'duel' | 'coop' | 'gungame' | 'ggduel';
+export interface ModeDef { id: ModeId; name: string; blurb: string; bots: number; limit: number; time: number; teams: boolean; size: number; online: boolean; gun?: boolean; perTier?: number; map?: 'fort' | 'towers' | 'random' }
 export const MODES: Record<ModeId, ModeDef> = {
   solo: { id: 'solo', name: 'Free-for-all', blurb: 'You and 7 bots. First to 20 pops.', bots: 7, limit: 20, time: 240, teams: false, size: 32, online: false },
   duel: { id: 'duel', name: '1v1', blurb: 'You against your friend. First to 10 pops.', bots: 0, limit: 10, time: 300, teams: false, size: 22, online: true },
-  coop: { id: 'coop', name: '2 vs bots', blurb: 'You and your friend against 5 bots. First team to 30.', bots: 5, limit: 30, time: 300, teams: true, size: 30, online: true },
+  coop: { id: 'coop', name: '2 vs bots', blurb: 'You and your friend against 5 bots. First team to 30.', bots: 5, limit: 30, time: 300, teams: true, size: 30, online: true, map: 'fort' },
+  gungame: { id: 'gungame', name: 'Gun Game', blurb: 'Every pop moves you up a weapon. Win with a spikes kill.', bots: 7, limit: 8, time: 480, teams: false, size: 32, online: false, gun: true, perTier: 1 },
+  ggduel: { id: 'ggduel', name: 'Gun Game 1v1', blurb: 'Climb the weapon ladder: 2 pops per weapon, win with spikes.', bots: 0, limit: 8, time: 480, teams: false, size: 22, online: true, gun: true, perTier: 2 },
 };
+export const MAPS = {
+  auto: { name: 'Auto', blurb: 'Fort for co-op, random for the rest' },
+  random: { name: 'Random', blurb: 'A fresh arena every match' },
+  fort: { name: 'Fort', blurb: 'A raised keep with ramps and battlements' },
+  towers: { name: 'Towers', blurb: 'Two raised towers in opposite corners' },
+} as const;
+export type MapChoice = keyof typeof MAPS;
 export const MATCH = { fragLimit: 20, timeLimit: 240, bots: 7 };
 
 export type AbilityId = 'dash' | 'spikes' | 'bubble' | 'shockwave';

@@ -64,6 +64,12 @@ export class Audio {
       case 'rocket':
         this.noise('bandpass', 700, 2400, 0.35, 0.5 * v, 0.8); this.tone('sawtooth', 110, 260, 0.25, 0.12 * v);
         break;
+      case 'railgun': this.tone('sawtooth', 2400, 180, 0.35, 0.22 * v); this.tone('sine', 1200, 60, 0.4, 0.4 * v); this.noise('highpass', 4000, 9000, 0.3, 0.2 * v); break;
+      case 'bouncer': this.tone('sine', 700, 1400, 0.09, 0.3 * v); this.tone('triangle', 350, 520, 0.08, 0.15 * v); break;
+      case 'pistol': this.noise('bandpass', 2400, 900, 0.07, 0.6 * v, 1.2); this.tone('square', 520, 160, 0.06, 0.18 * v); break;
+      case 'grenade': this.noise('bandpass', 600, 1800, 0.14, 0.25 * v, 1.2); break;
+      case 'levelup': [523, 784, 1046, 1568].forEach((f, i) => this.tone('square', f, f * 1.01, 0.12, 0.14, i * 0.06)); this.tone('sine', 260, 1040, 0.35, 0.18); break;
+      case 'demote': [494, 392, 311].forEach((f, i) => this.tone('sawtooth', f, f * 0.9, 0.16, 0.12, i * 0.1)); break;
       case 'boom':
         this.noise('lowpass', 2200, 60, 0.7, 1.1 * v); this.tone('sine', 120, 30, 0.55, 0.9 * v);
         this.noise('bandpass', 600, 150, 0.45, 0.35 * v, 0.6, 0.04);

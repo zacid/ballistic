@@ -58,6 +58,34 @@ function gunGeo(id: WeaponId, accent: number) {
     const barrels: THREE.BufferGeometry[] = [];
     for (let i = 0; i < 4; i++) { const a = (i / 4) * Math.PI * 2; barrels.push(part(new THREE.CylinderGeometry(0.035, 0.035, 0.6, 8), GUNMETAL, Math.cos(a) * 0.07, Math.sin(a) * 0.07, 0, H)); }
     out = { body: part(new THREE.BoxGeometry(0.26, 0.22, 0.4), acc, 0, 0, -0.02), spin: mergeGeometries(barrels)! };
+  } else if (id === 'railgun') {
+    const glow = new THREE.Color(0xd9c4ff);
+    out = { body: mergeGeometries([
+      part(new THREE.BoxGeometry(0.18, 0.2, 0.45), acc, 0, 0, -0.02),
+      part(new THREE.CylinderGeometry(0.05, 0.05, 1.05, 10), GUNMETAL, 0, 0.03, 0.55, H),
+      part(new THREE.TorusGeometry(0.09, 0.025, 6, 14), glow, 0, 0.03, 0.4),
+      part(new THREE.TorusGeometry(0.09, 0.025, 6, 14), glow, 0, 0.03, 0.62),
+      part(new THREE.TorusGeometry(0.09, 0.025, 6, 14), glow, 0, 0.03, 0.84),
+    ])! };
+  } else if (id === 'bouncer') {
+    out = { body: mergeGeometries([
+      part(new THREE.SphereGeometry(0.2, 12, 8), acc, 0, 0, 0.05),
+      part(new THREE.CylinderGeometry(0.12, 0.15, 0.45, 12), GUNMETAL, 0, 0.02, 0.35, H),
+      part(new THREE.TorusGeometry(0.13, 0.03, 6, 14), new THREE.Color(0x5cffb0), 0, 0.02, 0.57),
+    ])! };
+  } else if (id === 'pistol') {
+    out = { body: mergeGeometries([
+      part(new THREE.BoxGeometry(0.12, 0.16, 0.34), acc, 0, 0, 0.12),
+      part(new THREE.CylinderGeometry(0.04, 0.04, 0.3, 8), GUNMETAL, 0, 0.03, 0.38, H),
+      part(new THREE.BoxGeometry(0.1, 0.16, 0.1), GUNMETAL, 0, -0.12, 0.05),
+    ])! };
+  } else if (id === 'grenade') {
+    out = { body: mergeGeometries([
+      part(new THREE.SphereGeometry(0.17, 12, 8), new THREE.Color(0x3b8f4a), 0, 0.05, 0.2),
+      part(new THREE.CylinderGeometry(0.05, 0.05, 0.1, 8), new THREE.Color(0xcfd3dc), 0, 0.25, 0.2),
+    ])! };
+  } else if (id === 'spikes') {
+    out = { body: new THREE.BufferGeometry() };
   } else {
     out = { body: mergeGeometries([
       part(new THREE.CylinderGeometry(0.13, 0.13, 0.95, 14), acc, 0, 0.02, 0.2, H),
@@ -132,6 +160,11 @@ export interface Babo {
   fire: boolean;
   wantAbility: boolean;
   kills: number; deaths: number;
+  tier: number; tierKills: number; won: boolean;   // Gun Game
+  gy: number;          // ground height under the ball
+  aimDist: number;     // how far away the player/bot is aiming (grenade throws)
+  semiLock: boolean;   // semi-auto: wait for the trigger to be released
+  spikeCd: Map<number, number>;
   streak: number;
   lastHitBy: number; lastHitT: number;
   hurtT: number;
@@ -167,7 +200,7 @@ export function makeBabo(id: number, name: string, color: number, weapon: Weapon
     weapon, ammo: WEAPONS[weapon].clip, reloadT: 0, cool: 0, nades: GRENADE.start, nadeCool: 0,
     ability, abCool: 0, abT: 0, abCount: 0, spikeHits: new Set(),
     aimX: 1, aimZ: 0, moveX: 0, moveZ: 0, fire: false, wantAbility: false,
-    kills: 0, deaths: 0, streak: 0, lastHitBy: -1, lastHitT: 0, hurtT: 0, spawnShield: 0,
+    kills: 0, deaths: 0, tier: 0, tierKills: 0, won: false, gy: 0, aimDist: 6, semiLock: false, spikeCd: new Map(), streak: 0, lastHitBy: -1, lastHitT: 0, hurtT: 0, spawnShield: 0,
     root, ball, gun, ring, mat, spikes: sp, bubble, recoilZ: 0,
     net: [], netFire: false, netReload: false,
   };
@@ -202,14 +235,15 @@ export function updateBaboVisual(b: Babo, dt: number) {
   const spin = b.gun.userData.spin as THREE.Mesh | undefined;
   const firing = b.local ? b.fire && b.reloadT <= 0 : b.netFire && !b.netReload;
   if (spin) spin.rotation.z += dt * (firing ? 40 : 3);
-  b.ring.position.y = -BALL.radius - b.y + 0.03;
+  b.ring.position.y = -BALL.radius - (b.y - b.gy) + 0.03;
   b.hurtT = Math.max(0, b.hurtT - dt);
   b.mat.emissiveIntensity = b.hurtT > 0 ? b.hurtT * 5 : b.spawnShield > 0 ? 0.25 + 0.2 * Math.sin(performance.now() / 60) : 0;
   // abilities
   const active = b.abT > 0;
-  const spk = active && b.ability === 'spikes';
+  const spk = (active && b.ability === 'spikes') || b.weapon === 'spikes';
   b.spikes.visible = spk;
-  if (spk) { const k = Math.min(1, (ABILITIES.spikes.dur - b.abT) * 10, b.abT * 8); b.spikes.scale.setScalar(0.3 + 0.7 * Math.max(0, k)); }
+  if (b.weapon === 'spikes') b.spikes.scale.setScalar(1.1 + 0.05 * Math.sin(performance.now() / 90));
+  else if (spk) { const k = Math.min(1, (ABILITIES.spikes.dur - b.abT) * 10, b.abT * 8); b.spikes.scale.setScalar(0.3 + 0.7 * Math.max(0, k)); }
   const bub = active && b.ability === 'bubble';
   b.bubble.visible = bub;
   if (bub) { const k = Math.min(1, (ABILITIES.bubble.dur - b.abT) * 8, b.abT * 5); b.bubble.scale.setScalar(Math.max(0.01, k) * (1 + 0.04 * Math.sin(performance.now() / 70))); }

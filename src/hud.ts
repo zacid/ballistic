@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Game } from './game';
 import type { Babo } from './babo';
-import { ONLINE_URL, ABILITIES, AbilityId, BALL, COLORS, DIFFICULTY, Difficulty, GRENADE, MODES, ModeId, WEAPONS, WeaponId } from './config';
+import { ONLINE_URL, ABILITIES, AbilityId, BALL, COLORS, DIFFICULTY, Difficulty, GRENADE, LADDER, MAPS, MapChoice, ModeId, PICKABLE, WEAPONS, WeaponId } from './config';
 import { QUALITY, Quality } from './render';
 import type { RenderFlags } from './render';
 
@@ -29,10 +29,11 @@ export class Hud {
     this.buildMenu();
     $('play').addEventListener('click', () => { this.g.audio.unlock(); this.g.startSolo(); });
     $('play-online').addEventListener('click', () => { this.g.audio.play('click'); this.g.openLobby(); });
-    $('again').addEventListener('click', () => { if (this.g.online) this.g.backToLobby(); else this.g.startSolo(); });
+    $('again').addEventListener('click', () => { this.g.audio.play('click'); this.g.rematch(); });
+    $('to-lobby').addEventListener('click', () => this.g.backToLobby());
     $('to-menu').addEventListener('click', () => this.toMenu());
     $('lobby-back').addEventListener('click', () => { this.g.leaveLobby(); this.toMenu(); });
-    for (const m of ['duel', 'coop'] as ModeId[]) $('lobby-' + m).addEventListener('click', () => { this.g.audio.play('click'); this.g.hostMatch(m); });
+    for (const m of ['duel', 'coop', 'ggduel'] as ModeId[]) $('lobby-' + m).addEventListener('click', () => { this.g.audio.play('click'); this.g.hostMatch(m); });
     $('invite-btn').addEventListener('click', () => { this.g.audio.play('click'); this.g.createInvite(); });
     $('invite-copy').addEventListener('click', () => {
       const inp = $('invite-link') as HTMLInputElement;
@@ -76,11 +77,11 @@ export class Hud {
   private buildMenu() {
     const cards = $('cards'); cards.innerHTML = '';
     const bar = (label: string, v: number) => `<div class="stat"><span>${label}</span><i><b style="width:${Math.round(v * 100)}%"></b></i></div>`;
-    for (const w of Object.values(WEAPONS)) {
+    for (const w of PICKABLE.map(id => WEAPONS[id])) {
       const c = document.createElement('button');
       c.className = 'card' + (w.id === this.g.saved.weapon ? ' on' : ''); c.dataset.id = w.id;
       c.setAttribute('aria-pressed', String(w.id === this.g.saved.weapon));
-      c.innerHTML = `<div class="key">${Object.keys(WEAPONS).indexOf(w.id) + 1}</div><h2>${w.name}</h2><p>${w.blurb}</p>${bar('POWER', w.stats.power)}${bar('RANGE', w.stats.range)}${bar('FIRE RATE', w.stats.rate)}`;
+      c.innerHTML = `<div class="key">${PICKABLE.indexOf(w.id) + 1}</div><h2>${w.name}</h2><p>${w.blurb}</p>${bar('POWER', w.stats.power)}${bar('RANGE', w.stats.range)}${bar('FIRE RATE', w.stats.rate)}`;
       c.addEventListener('click', () => { this.g.audio.unlock(); this.g.audio.play('click'); this.g.saved.weapon = w.id; this.g.pendingWeapon = w.id; this.g.save(); this.buildMenu(); });
       cards.appendChild(c);
     }
@@ -101,14 +102,40 @@ export class Hud {
       b.addEventListener('click', () => { this.g.audio.unlock(); this.g.audio.play('click'); this.g.saved.color = i; this.g.save(); this.buildMenu(); });
       sw.appendChild(b);
     });
-    const ds = $('difficulty-seg'); ds.innerHTML = '';
-    for (const d of Object.keys(DIFFICULTY) as Difficulty[]) {
-      const b = document.createElement('button'); b.textContent = DIFFICULTY[d].label;
-      b.className = d === this.g.saved.difficulty ? 'on' : '';
-      b.addEventListener('click', () => { this.g.audio.unlock(); this.g.audio.play('click'); this.g.saved.difficulty = d; this.g.save(); this.buildMenu(); });
-      ds.appendChild(b);
+    this.segs(() => this.buildMenu());
+    const ms = $('solo-seg'); ms.innerHTML = '';
+    for (const m of ['solo', 'gungame'] as const) {
+      const b = document.createElement('button'); b.textContent = m === 'solo' ? 'Free-for-all' : 'Gun Game';
+      b.className = m === this.g.saved.soloMode ? 'on' : '';
+      b.addEventListener('click', () => { this.g.audio.unlock(); this.g.audio.play('click'); this.g.saved.soloMode = m; this.g.save(); this.buildMenu(); });
+      ms.appendChild(b);
     }
+    const gg = this.g.saved.soloMode === 'gungame';
+    $('tagline').textContent = gg
+      ? 'Gun Game: every pop moves you up a weapon. Pop someone with spikes to win.'
+      : 'Eight toy balls, six guns, one arena. First to 20 pops wins.';
+    $('cards-label').textContent = gg ? 'PICK YOUR GUN (FOR FREE-FOR-ALL)' : 'PICK YOUR GUN';
     $('best').textContent = this.g.saved.best ? `Best finish: ${ordinal(this.g.saved.best)}` : '';
+  }
+
+  /** Bot difficulty and arena pickers; the menu and the lobby both have a pair. */
+  private segs(redraw: () => void) {
+    for (const pre of ['', 'lobby-']) {
+      const ds = $(pre + 'difficulty-seg'); ds.innerHTML = '';
+      for (const d of Object.keys(DIFFICULTY) as Difficulty[]) {
+        const b = document.createElement('button'); b.textContent = DIFFICULTY[d].label;
+        b.className = d === this.g.saved.difficulty ? 'on' : '';
+        b.addEventListener('click', () => { this.g.audio.unlock(); this.g.audio.play('click'); this.g.saved.difficulty = d; this.g.save(); redraw(); });
+        ds.appendChild(b);
+      }
+      const as = $(pre + 'map-seg'); as.innerHTML = '';
+      for (const m of Object.keys(MAPS) as MapChoice[]) {
+        const b = document.createElement('button'); b.textContent = MAPS[m].name; b.title = MAPS[m].blurb;
+        b.className = m === this.g.saved.map ? 'on' : '';
+        b.addEventListener('click', () => { this.g.audio.unlock(); this.g.audio.play('click'); this.g.saved.map = m; this.g.save(); redraw(); });
+        as.appendChild(b);
+      }
+    }
   }
 
   setPerf(on: boolean) {
@@ -134,7 +161,8 @@ export class Hud {
   renderKit(id: string) {
     const el = $(id); const g = this.g;
     const inMatch = g.state === 'countdown' || g.state === 'playing';
-    el.innerHTML = `<div class="kit-row">${Object.values(WEAPONS).map(w => `<button data-w="${w.id}" class="${w.id === g.saved.weapon ? 'on' : ''}">${w.name}</button>`).join('')}</div>`
+    const gunLocked = inMatch && g.mode?.gun;
+    el.innerHTML = (gunLocked ? `<div class="kit-row"><em class="kit-note">Gun Game picks your gun for you</em></div>` : `<div class="kit-row">${PICKABLE.map(id => WEAPONS[id]).map(w => `<button data-w="${w.id}" class="${w.id === g.saved.weapon ? 'on' : ''}">${w.name}</button>`).join('')}</div>`)
       + `<div class="kit-row">${Object.values(ABILITIES).map(a => `<button data-a="${a.id}" class="${a.id === g.saved.ability ? 'on' : ''}">${a.name}<small>${a.cooldown}s</small></button>`).join('')}</div>`;
     el.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
       g.audio.play('click');
@@ -152,6 +180,7 @@ export class Hud {
     $('hud').classList.add('hidden');
     $('lobby').classList.add('open');
     this.renderKit('lobby-kit');
+    const again = () => this.segs(again); again();
     this.renderLobby();
   }
   toLobby() { this.g.backToLobby(); }
@@ -186,7 +215,7 @@ export class Hud {
     $('invite-row').hidden = !(room && room.role === 'host' && net.linked);
     if (room && room.role === 'host') ($('invite-link') as HTMLInputElement).value = room.link;
     $('lobby-steps').hidden = g.inArtifact || room?.role === 'guest' || friends.length > 0;
-    for (const m of ['duel', 'coop'] as ModeId[]) ($('lobby-' + m) as HTMLButtonElement).disabled = !friends.length;
+    for (const m of ['duel', 'coop', 'ggduel'] as ModeId[]) ($('lobby-' + m) as HTMLButtonElement).disabled = !friends.length;
     $('lobby-diag').textContent = room
       ? `${room.role} | code ${room.code} | server ${room.brokerOk ? 'ok' : 'no'} | ${net.linked ? 'connected' : 'not connected'} | ${friends.length} in lobby`
         + (room.ice.state === 'relay' ? (room.ice.path ? ` | ${room.ice.path}` : '') : room.ice.path && room.ice.state.includes('connected') ? ` | ${room.ice.path}` : room.ice.state !== 'idle' ? ` | ICE ${room.ice.state} | mine ${room.ice.local || '-'} | theirs ${room.ice.remote || '-'}${room.ice.path ? ' | via ' + room.ice.path : ''}` : '')
@@ -226,6 +255,8 @@ export class Hud {
   }
 
   pickWeapon(w: WeaponId, silent = false) {
+    const g = this.g;
+    if (g.mode?.gun && (g.state === 'countdown' || g.state === 'playing')) { if (!silent) this.toast('Gun Game picks your gun for you'); return; }
     this.g.pendingWeapon = w; this.g.saved.weapon = w; this.g.save();
     if (!silent && this.g.player) this.toast(this.g.player.weapon === w ? `${WEAPONS[w].name} equipped` : `${WEAPONS[w].name} on next respawn`);
   }
@@ -245,15 +276,22 @@ export class Hud {
     const g = this.g;
     let title: string;
     if (g.mode.teams) { const ts = g.teamScores(); const mine = ts[g.player.team]; const theirs = Math.max(...Object.entries(ts).filter(([k]) => Number(k) !== g.player.team).map(([, v]) => v), 0); title = mine > theirs ? 'TEAM WINS!' : mine === theirs ? 'DRAW' : 'BOTS WIN'; $('result-sub').textContent = `Your team ${mine} : ${theirs} bots`; }
+    else if (g.mode.gun) {
+      const champ = ranked[0]?.won ? ranked[0] : null;
+      title = won ? 'YOU WIN!' : p1(g.nameOf(ranked[0])) + ' WINS';
+      $('result-sub').textContent = champ ? `${g.nameOf(champ)} popped someone with spikes` : 'Time up: highest level takes it';
+    }
     else if (g.mode.id === 'duel') { const foe = g.babos.find(b => !b.isPlayer)!; title = won ? 'YOU WIN!' : p1(foe.name) + ' WINS'; $('result-sub').textContent = `${g.player.kills} : ${foe.kills}`; }
     else { title = won ? 'WINNER!' : `${ordinal(place)} PLACE`; $('result-sub').textContent = ''; }
     if (g.endReason) $('result-sub').textContent = g.endReason;
     $('result-title').textContent = title;
     $('result-title').className = won ? '' : 'lose';
-    $('again').textContent = g.online ? 'BACK TO LOBBY' : 'PLAY AGAIN';
+    $('again').textContent = g.online ? 'REMATCH' : 'PLAY AGAIN';
+    $('to-lobby').hidden = !g.online;
     $('to-menu').textContent = g.online ? 'LEAVE' : 'CHANGE LOADOUT';
+    $('result-mid').textContent = g.mode.gun ? 'LEVEL' : 'POPS';
     $('result-table').innerHTML = ranked.map((b, i) =>
-      `<tr class="${b.isPlayer ? 'me' : ''}"><td>${i + 1}</td><td><i style="background:${hex(b.color)}"></i>${esc(this.g.nameOf(b))}</td><td>${b.kills}</td><td>${b.deaths}</td></tr>`).join('');
+      `<tr class="${b.isPlayer ? 'me' : ''}"><td>${i + 1}</td><td><i style="background:${hex(b.color)}"></i>${esc(this.g.nameOf(b))}</td><td>${g.mode.gun ? lvl(b) : b.kills}</td><td>${b.deaths}</td></tr>`).join('');
     setTimeout(() => $('result').classList.add('open'), 700);
   }
 
@@ -264,10 +302,11 @@ export class Hud {
   toast(msg: string) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); this.toastT = 2.2; }
   hurt(k: number) { this.hurtV = Math.min(1, this.hurtV + k); }
 
-  feed(killer: Babo | null, victim: Babo) {
+  feed(killer: Babo | null, victim: Babo, knifed = false) {
     const d = document.createElement('div');
     const n = (b: Babo) => `<b style="color:${hex(b.color)}">${esc(this.g.nameOf(b))}</b>`;
-    d.innerHTML = killer ? `${n(killer)} <span>popped</span> ${n(victim)}` : `${n(victim)} <span>popped themselves</span>`;
+    d.innerHTML = killer ? `${n(killer)} <span>${knifed ? 'SPIKED' : 'popped'}</span> ${n(victim)}` : `${n(victim)} <span>popped themselves</span>`;
+    if (knifed) d.classList.add('spiked');
     if (killer?.isPlayer || victim.isPlayer) d.classList.add('me');
     const f = $('feed'); f.prepend(d);
     while (f.children.length > 5) f.lastChild!.remove();
@@ -291,9 +330,16 @@ export class Hud {
     if (show) this.renderBoard();
   }
   private renderBoard() {
-    const ranked = [...this.g.babos].sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
+    const ranked = this.ranked();
     $('board-table').innerHTML = ranked.map((b, i) =>
-      `<tr class="${b.isPlayer ? 'me' : ''}"><td>${i + 1}</td><td><i style="background:${hex(b.color)}"></i>${esc(this.g.nameOf(b))}</td><td>${WEAPONS[b.weapon].name}</td><td>${b.kills}</td><td>${b.deaths}</td></tr>`).join('');
+      `<tr class="${b.isPlayer ? 'me' : ''}"><td>${i + 1}</td><td><i style="background:${hex(b.color)}"></i>${esc(this.g.nameOf(b))}</td><td>${this.g.mode.gun ? lvl(b) + ' ' : ''}${WEAPONS[b.weapon].name}</td><td>${b.kills}</td><td>${b.deaths}</td></tr>`).join('');
+  }
+
+  private ranked() {
+    const g = this.g;
+    return g.mode?.gun
+      ? [...g.babos].sort((a, b) => Number(b.won) - Number(a.won) || b.tier - a.tier || b.tierKills - a.tierKills || b.kills - a.kills)
+      : [...g.babos].sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
   }
 
   cursor(x: number, y: number) { const c = $('cross'); c.style.transform = `translate(${x}px, ${y}px)`; }
@@ -374,7 +420,8 @@ export class Hud {
       this.lastAmmoKey = key;
       $('wpn-name').textContent = w.name;
       const pips = $('ammo');
-      if (w.clip <= 8) pips.innerHTML = Array.from({ length: w.clip }, (_, i) => `<i class="${i < p.ammo ? 'on' : ''}"></i>`).join('');
+      if (w.kind === 'lob' || w.kind === 'melee') pips.innerHTML = `<span class="ammo-n">&infin;</span>`;
+      else if (w.clip <= 8) pips.innerHTML = Array.from({ length: w.clip }, (_, i) => `<i class="${i < p.ammo ? 'on' : ''}"></i>`).join('');
       else pips.innerHTML = `<div class="ammo-bar"><b style="transform:scaleX(${p.ammo / w.clip})"></b></div><span class="ammo-n">${p.ammo}</span>`;
       $('nades').innerHTML = Array.from({ length: GRENADE.max }, (_, i) => `<i class="${i < p.nades ? 'on' : ''}"></i>`).join('');
     }
@@ -395,7 +442,7 @@ export class Hud {
     // death overlay
     if (!p.alive && g.state === 'playing') {
       $('dead-t').textContent = `Back in ${Math.max(0, p.respawnT).toFixed(1)}s`;
-      $('dead-next').textContent = `Respawning with ${WEAPONS[g.pendingWeapon].name} + ${ABILITIES[g.pendingAbility].name}. Press 1 2 3 to switch gun, P to change ability.`;
+      $('dead-next').textContent = `Respawning with ${WEAPONS[g.pendingWeapon].name} + ${ABILITIES[g.pendingAbility].name}. ${g.mode.gun ? 'P to change ability.' : 'Press 1-6 to switch gun, P to change ability.'}`;
     } else $('dead').classList.remove('show');
 
     // ping to the other player (online only)
@@ -419,15 +466,19 @@ export class Hud {
     this.boardT -= dt;
     if (this.boardT <= 0) {
       this.boardT = 0.25;
-      const ranked = [...g.babos].sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
+      const ranked = this.ranked();
       const place = ranked.indexOf(p) + 1;
       if (g.mode.teams) {
         const ts = g.teamScores(); const mine = ts[p.team] ?? 0;
         const theirs = Math.max(0, ...Object.entries(ts).filter(([k]) => Number(k) !== p.team).map(([, v]) => v));
         $('race').innerHTML = `<b>${mine}</b><span>: ${theirs} &middot; to ${g.mode.limit}</span>`;
+      } else if (g.mode.gun) {
+        const per = g.mode.perTier ?? 1, last = p.tier >= LADDER.length - 1;
+        const need = last ? 'spikes to win!' : per > 1 ? `${per - p.tierKills} to next` : '';
+        $('race').innerHTML = `<b>L${Math.min(p.tier + 1, LADDER.length)}</b><span>/ ${LADDER.length} &middot; ${WEAPONS[LADDER[Math.min(p.tier, LADDER.length - 1)]].name}${need ? ' &middot; ' + need : ''}</span><em>${ordinal(place)}</em>`;
       } else $('race').innerHTML = `<b>${p.kills}</b><span>/ ${g.mode.limit}</span><em>${ordinal(place)}</em>`;
       const top = ranked.slice(0, 4); if (!top.includes(p)) top[3] = p;
-      $('mini').innerHTML = top.map(b => `<div class="${b.isPlayer ? 'me' : ''}"><i style="background:${hex(b.color)}"></i><span>${esc(this.g.nameOf(b))}</span><b>${b.kills}</b></div>`).join('');
+      $('mini').innerHTML = top.map(b => `<div class="${b.isPlayer ? 'me' : ''}"><i style="background:${hex(b.color)}"></i><span>${esc(this.g.nameOf(b))}</span><b>${g.mode.gun ? lvl(b) : b.kills}</b></div>`).join('');
       if ($('board').classList.contains('open')) this.renderBoard();
     }
     void this.deathKiller;
@@ -437,3 +488,4 @@ export class Hud {
 export function ordinal(n: number) { const s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
 
 const p1 = (n: string) => n.toUpperCase();
+const lvl = (b: Babo) => b.won ? '&#9733;' : `L${b.tier + 1}`;
