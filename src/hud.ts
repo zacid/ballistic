@@ -128,6 +128,7 @@ export class Hud {
       const ds = $(pre + 'difficulty-seg'); ds.innerHTML = '';
       for (const d of Object.keys(DIFFICULTY) as Difficulty[]) {
         const b = document.createElement('button'); b.textContent = DIFFICULTY[d].label;
+        if (d === 'adaptive') b.title = 'Hold the Fort sizes each wave to how well you played the last one';
         b.className = d === this.g.saved.difficulty ? 'on' : '';
         b.addEventListener('click', () => { this.g.audio.unlock(); this.g.audio.play('click'); this.g.saved.difficulty = d; this.g.save(); redraw(); });
         ds.appendChild(b);
@@ -488,7 +489,9 @@ export class Hud {
       if (g.mode.waves) {
         const w = g.wv, left = w.breakT > 0 ? 0 : w.queue + g.babos.filter(b => !b.human && b.alive).length;
         const hearts = w.lives <= 6 ? '&#9829;'.repeat(w.lives) || '<i>&#9829;</i>' : `&#9829;&times;${w.lives}`;
-        $('race').innerHTML = `<span class="lives">${hearts}</span><span>${w.breakT > 0 ? (w.n ? 'wave clear' : 'get ready') : `${left} bot${left === 1 ? '' : 's'} left`}</span>${w.out.has(p.id) ? '<em>out</em>' : ''}`;
+        const th = g.director.adaptive ? g.director.threat(Math.max(1, w.n)) : 0;
+        const meter = th ? `<span class="threat t${th}" title="How hard the bots are pushing, sized to how you're playing">${'<b></b>'.repeat(th)}${'<i></i>'.repeat(5 - th)}</span>` : '';
+        $('race').innerHTML = `<span class="lives">${hearts}</span>${meter}<span>${w.breakT > 0 ? (w.n ? 'wave clear' : 'get ready') : `${left} bot${left === 1 ? '' : 's'} left`}</span>${w.out.has(p.id) ? '<em>out</em>' : ''}`;
       } else if (g.mode.teams) {
         const ts = g.teamScores(); const mine = ts[p.team] ?? 0;
         const theirs = Math.max(0, ...Object.entries(ts).filter(([k]) => Number(k) !== p.team).map(([, v]) => v));

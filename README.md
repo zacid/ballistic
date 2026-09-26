@@ -15,6 +15,10 @@ Every pop moves you one weapon up the ladder: rockets, railgun, chaingun, bounce
 
 Defend the keep on the Fort map against waves of bots. Each wave brings more of them, with better guns and sharper aim, and every 5th wave has a boss: a big, slow, rocket-firing ball with 450 HP that shrugs off knockback. The defenders share a pool of lives (3 solo, 5 for two players). Clearing a wave or popping a boss gives one back, and you heal between waves. If you die with no lives left you sit out until the next wave; if everyone is out, the fort falls. Your best wave is saved.
 
+### Adaptive difficulty
+
+With the Bots setting on **Adaptive** (the default), Hold the Fort sizes each wave to how you played the last one (`src/director.ts`). After every wave it scores lives lost, damage taken per bot popped, health left and time taken against a target of "a bit of a scramble", and nudges a hidden rating: down fast when you're struggling, up slowly when you're cruising. The rating and the wave number set bot aim and reaction time, how many come and how many attack at once, how quickly they arrive, their guns, how hard their shots hit, and the boss's health. Mid-wave it only ever eases off: if everyone standing is badly hurt, or someone just lost a life, reinforcements hold back for a few seconds. In co-op, whoever is clearly carrying draws more of the fire. The bars next to your lives show the current threat level. Easy, Normal and Hard pin the rating instead.
+
 ### Music
 
 The soundtrack is generated live by a small step sequencer (`src/music.ts`): square-wave bass, a pulse arpeggio, a lead line that is new every match, and synth drums. It gets busier and faster in the last 30 seconds, when a boss is out, or when someone is close to winning. Toggle it in settings.
@@ -129,7 +133,7 @@ The relay uses one SQLite-backed Durable Object per room with the WebSocket Hibe
 
 ## Tests
 
-`tests/solo.mjs` fast-forwards bot-only matches (Gun Game on Fort and Towers, free-for-all) and checks for errors. `tests/waves.mjs` and `tests/waves-duo.mjs` cover Hold the Fort solo and online. `tests/gg.mjs` plays online Gun Game 1v1 through the local servers, checks the ladder syncs, and tests the rematch.
+`tests/solo.mjs` fast-forwards bot-only matches (Gun Game on Fort and Towers, free-for-all) and checks for errors. `tests/waves.mjs` and `tests/waves-duo.mjs` cover Hold the Fort solo and online; `tests/director.mjs` checks the difficulty climbs for a strong player and falls for a weak one. `tests/gg.mjs` plays online Gun Game 1v1 through the local servers, checks the ladder syncs, and tests the rematch.
 
 `tests/p2p.mjs` runs two headless browsers against a local PeerJS server, creates an invite, joins it, plays a duel and checks that kills and disconnects sync:
 

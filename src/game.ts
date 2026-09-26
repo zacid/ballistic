@@ -13,6 +13,7 @@ import { Renderer, Quality } from './render';
 import { Hud } from './hud';
 import { Input } from './input';
 import { thinkBot } from './bots';
+import { Director } from './director';
 import { Stats } from './stats';
 import { Net, NetEvent, RosterEntry, StartOffer, HostState } from './net';
 import { PeerRoom, newCode } from './peerroom';
@@ -38,15 +39,16 @@ const STORE = 'ballistic.v1';
 export interface Saved {
   weapon: WeaponId; ability: AbilityId; color: number; difficulty: Difficulty; quality: Quality | 'auto';
   muted: boolean; best?: number; perf?: boolean; nick: string;
-  soloMode: 'solo' | 'gungame' | 'waves'; map: MapChoice; bestWave?: number; music?: boolean;
+  soloMode: 'solo' | 'gungame' | 'waves'; map: MapChoice; bestWave?: number; music?: boolean; v2?: boolean;
 }
 function load(): Saved {
   let s: Partial<Saved> = {};
   try { s = JSON.parse(localStorage.getItem(STORE) || '{}'); } catch { s = {}; }
   return {
-    weapon: s.weapon ?? 'shotgun', ability: s.ability ?? 'dash', color: s.color ?? 0, difficulty: s.difficulty ?? 'normal',
+    // v2: Adaptive became the default (once), since it's the one that suits Hold the Fort
+    weapon: s.weapon ?? 'shotgun', ability: s.ability ?? 'dash', color: s.color ?? 0, difficulty: (s as any).v2 ? s.difficulty ?? 'adaptive' : 'adaptive',
     quality: s.quality ?? 'auto', muted: !!s.muted, best: s.best, perf: s.perf, nick: s.nick ?? '',
-    soloMode: s.soloMode ?? 'solo', map: s.map ?? 'auto', bestWave: s.bestWave, music: s.music ?? true,
+    soloMode: s.soloMode ?? 'solo', map: s.map ?? 'auto', bestWave: s.bestWave, music: s.music ?? true, v2: true,
   };
 }
 
@@ -81,7 +83,8 @@ export class Game {
   partner = '';
   endReason = '';
   /** Hold the Fort state (the host runs it; guests mirror it from the host state). */
-  wv = { n: 0, lives: 0, breakT: 0, queue: 0, spawnT: 0, boss: -1, out: new Set<number>(), cleared: false };
+  wv = { n: 0, lives: 0, breakT: 0, queue: 0, total: 0, spawnT: 0, boss: -1, out: new Set<number>(), cleared: false };
+  director = new Director();
   private offer: StartOffer | null = null;
   private netT = 0;
   private peerOffset = new Map<string, number>();
@@ -187,7 +190,8 @@ export class Game {
       if (me) this.player = b;
     }
     const humans = this.babos.filter(b => b.human).length;
-    this.wv = { n: 0, lives: humans > 1 ? WAVES.livesDuo : WAVES.lives, breakT: WAVES.firstBreak, queue: 0, spawnT: 0, boss: -1, out: new Set(), cleared: false };
+    this.wv = { n: 0, lives: humans > 1 ? WAVES.livesDuo : WAVES.lives, breakT: WAVES.firstBreak, queue: 0, total: 0, spawnT: 0, boss: -1, out: new Set(), cleared: false };
+    this.director.reset(this.saved.difficulty);
     for (const b of this.babos) {
       this.r.scene.add(b.root);
       // Hold the Fort: the bots wait off-stage until their wave
@@ -233,31 +237,34 @@ export class Game {
     if (w.breakT > 0) { w.breakT -= dt; if (w.breakT <= 0) this.startWave(w.n + 1); return; }
     const bots = this.babos.filter(b => !b.human);
     const alive = bots.filter(b => b.alive).length;
+    const humans = this.babos.filter(b => b.human), dir = this.director;
+    dir.watch(dt, humans);
     w.spawnT -= dt;
-    if (w.queue > 0 && w.spawnT <= 0 && alive < WAVES.maxAlive(w.n, this.humansN)) {
+    if (w.queue > 0 && w.spawnT <= 0 && alive < dir.maxAlive(w.n, humans.length)) {
       const slot = bots.find(b => !b.alive);
       if (slot) {
         const bossWave = w.n % BOSS.every === 0;
-        const makeBoss = bossWave && w.boss < 0 && w.queue === WAVES.count(w.n, this.humansN) + 1;
-        if (makeBoss) { setBoss(slot, true); w.boss = slot.id; } else if (slot.boss) setBoss(slot, false);
-        this.spawn(slot); w.queue--; w.spawnT = WAVES.spawnGap;
+        const makeBoss = bossWave && w.boss < 0 && w.queue === w.total;
+        if (makeBoss) { setBoss(slot, true); slot.maxHp = dir.bossHp(humans.length); w.boss = slot.id; } else if (slot.boss) setBoss(slot, false);
+        this.spawn(slot); w.queue--; w.spawnT = dir.spawnGap();
         if (makeBoss) { this.hud.banner(`${slot.name.toUpperCase()} THE BIG ONE`, true, 1.8); this.audio.play('boss'); }
       }
     }
     if (w.queue <= 0 && alive === 0) {
       w.breakT = WAVES.breakT; w.cleared = true;
       w.lives = Math.min(WAVES.maxLives, w.lives + 1);
+      dir.endWave(humans.reduce((s, b) => s + (b.alive ? Math.min(1, b.hp / BALL.hp) : 0), 0) / humans.length);
       this.onWaveCleared();
     }
     // everyone is down with no lives left
-    const humans = this.babos.filter(b => b.human);
     if (humans.every(b => !b.alive && w.out.has(b.id))) this.end(`The fort fell on wave ${w.n}`);
   }
 
   private startWave(n: number) {
     const w = this.wv;
     w.n = n; w.cleared = false; w.boss = -1; w.spawnT = 0.5;
-    w.queue = WAVES.count(n, this.humansN) + (n % BOSS.every === 0 ? 1 : 0);
+    w.queue = w.total = this.director.count(n, this.humansN) + (n % BOSS.every === 0 ? 1 : 0);
+    this.director.startWave(this.humansN, w.total);
     w.out.clear();
     for (const b of this.babos) if (!b.human) b.respawnT = 1e9;
     this.onWaveStart();
@@ -274,7 +281,8 @@ export class Game {
 
   private onWaveCleared() {
     this.hud.banner(`WAVE ${this.wv.n} CLEARED`, true, 1.8);
-    this.hud.toast('+1 life. Healing up for the next wave');
+    const tr = this.director.trend, ad = this.director.adaptive;
+    this.hud.toast(`+1 life.${ad && tr > 0 ? ' Too easy? The next wave is tougher' : ad && tr < 0 ? ' The next wave eases off a little' : ' Healing up for the next wave'}`);
     this.audio.play('kill');
   }
 
@@ -286,15 +294,22 @@ export class Game {
       this.hud.banner('BOSS POPPED! +1 LIFE', false, 1.6); this.r.addShake(0.6);
       this.explode(v.x, v.z, v.id, 3.5, 0, 0, false, v.gy);
     }
-    if (!v.human || !this.host) return;
+    if (!this.host) return;
+    if (!v.human) { this.director.botPopped(); return; }
+    this.director.lifeLost();
     if (w.lives > 0) w.lives--;
     else { w.out.add(v.id); if (v.isPlayer) this.hud.toast('No lives left. You are back next wave'); }
   }
 
-  /** Bots sharpen up as the waves go on. */
-  private waveDiff() {
-    const d = DIFFICULTY[this.saved.difficulty], n = this.wv.n;
-    return { react: Math.max(0.14, d.react - n * 0.02), aimErr: Math.max(0.05, d.aimErr - n * 0.008), lead: Math.min(1, d.lead + n * 0.03), nade: Math.min(1, d.nade + n * 0.05) };
+  /** Bots sharpen up as the waves go on, and to match the defenders. */
+  private waveDiff() { return this.director.aim(this.wv.n); }
+
+  /** Co-op: the defender who's carrying draws more of the fire. */
+  get waveLeader(): number {
+    const hs = this.babos.filter(b => b.human && b.alive);
+    if (hs.length < 2) return -1;
+    hs.sort((a, b) => (b.kills - b.deaths * 2) - (a.kills - a.deaths * 2));
+    return (hs[0].kills - hs[0].deaths * 2) - (hs[1].kills - hs[1].deaths * 2) >= 4 ? hs[0].id : -1;
   }
 
   private checkLimit() {
@@ -334,7 +349,7 @@ export class Game {
       if (b.isPlayer && this.pendingAbility !== 'spikes' && b.ability !== this.pendingAbility) { b.ability = this.pendingAbility; b.abCool = 0; }
       if (!b.human) { const ab = BOT_ABILITIES(true); b.ability = ab[(Math.random() * ab.length) | 0]; }
     } else if (!b.human && this.mode.waves) {
-      const pool = WAVES.guns(this.wv.n);
+      const pool = this.director.guns(this.wv.n);
       setWeapon(b, b.boss ? 'rocket' : pool[(Math.random() * pool.length) | 0]);
       b.ability = b.boss ? 'shockwave' : AIDS[(Math.random() * AIDS.length) | 0];
     } else if (!b.human) { setWeapon(b, PICKABLE[(Math.random() * PICKABLE.length) | 0]); b.ability = AIDS[(Math.random() * AIDS.length) | 0]; }
@@ -454,6 +469,7 @@ export class Game {
   /** The attacker's owner decides every hit. Local victims take it now; remote ones get a message. */
   hit(att: Babo, v: Babo, dmg: number, kx: number, kz: number, vy = 0) {
     if (!att.local || !v.alive || !this.canDamage(att, v)) return;
+    if (this.mode.waves && !att.human && v.human) dmg *= this.director.botDamage(this.wv.n);
     if (att.isPlayer && v !== att && v.spawnShield <= 0) { this.hud.floater(v.x, v.z, Math.round(dmg * (v.abT > 0 && v.ability === 'bubble' ? 0.3 : 1))); this.audio.play('hit', undefined, undefined, 0.8); }
     if (v.local) this.applyDamage(v, dmg, att.id, kx, kz, vy);
     else {
@@ -1059,14 +1075,15 @@ export class Game {
 
   /** Guest: follow the host's wave state (and do the local side of wave starts). */
   private mirrorWaves(a: number[]) {
-    const w = this.wv, [n, lives, br, left, boss, outMask] = a;
+    const w = this.wv, [n, lives, br, left, boss, outMask, sk, ad, tr, bossHp] = a;
+    const d = this.director; d.skill = (sk ?? 0) / 100; d.adaptive = ad === 1; d.trend = tr ?? 0;
     const newWave = n !== w.n && n > 0;
     const cleared = br > 0 && w.breakT <= 0 && n > 0;
     w.n = n; w.lives = lives; w.breakT = br / 10; w.queue = left; w.cleared = br > 0;
     w.out = new Set(this.babos.filter(b => outMask & (1 << b.id)).map(b => b.id));
     if (boss !== w.boss) {
       const old = this.babos[w.boss]; if (old?.boss) setBoss(old, false);
-      const nb = this.babos[boss]; if (nb) { setBoss(nb, true); this.hud.banner(`${nb.name.toUpperCase()} THE BIG ONE`, true, 1.8); this.audio.play('boss'); }
+      const nb = this.babos[boss]; if (nb) { setBoss(nb, true); if (bossHp) nb.maxHp = bossHp; this.hud.banner(`${nb.name.toUpperCase()} THE BIG ONE`, true, 1.8); this.audio.play('boss'); }
       w.boss = boss;
     }
     if (newWave) this.onWaveStart(); else if (cleared) this.onWaveCleared();
@@ -1100,7 +1117,7 @@ export class Game {
       e: this.epoch, st: this.state === 'countdown' ? 'c' : this.state === 'over' ? 'o' : 'p', t: Math.round(this.matchT * 10) / 10,
       k: this.babos.map(b => b.kills), d: this.babos.map(b => b.deaths),
       ...(this.mode.gun ? { g: this.babos.map(b => b.won ? 99 : b.tier * 10 + b.tierKills) } : {}),
-      ...(this.mode.waves ? { w: [this.wv.n, this.wv.lives, Math.round(this.wv.breakT * 10), this.wv.queue + this.babos.filter(b => !b.human && b.alive).length, this.wv.boss, [...this.wv.out].reduce((m, id) => m | (1 << id), 0)] } : {}),
+      ...(this.mode.waves ? { w: [this.wv.n, this.wv.lives, Math.round(this.wv.breakT * 10), this.wv.queue + this.babos.filter(b => !b.human && b.alive).length, this.wv.boss, [...this.wv.out].reduce((m, id) => m | (1 << id), 0), Math.round(this.director.skill * 100), this.director.adaptive ? 1 : 0, this.director.trend, this.babos[this.wv.boss]?.maxHp ?? 0] } : {}),
     } : null;
     this.net.flush(this.snapshot(), h);
     void force;

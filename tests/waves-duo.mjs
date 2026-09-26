@@ -24,7 +24,7 @@ await A.click('#lobby-waves');
 await B.waitForFunction(() => window.__game.state === 'playing', null, { timeout: 30000 });
 const st = p => p.evaluate(() => { const g = window.__game; return `${g.state} mode=${g.mode.id} map=${g.map} e=${g.epoch} ` + g.babos.map(b => `${b.name}${b.local ? 'L' : 'R'}:L${b.tier + 1}.${b.tierKills}${b.won ? '*' : ''}/${b.weapon}`).join(' '); });
 console.log('start A:', await st(A)); console.log('start B:', await st(B));
-const ws = p => p.evaluate(() => { const g = window.__game, w = g.wv; return `wave ${w.n} lives ${w.lives} break ${w.breakT.toFixed(1)} boss ${w.boss} out [${[...w.out]}] | clock "${document.getElementById('clock').textContent}" race "${document.getElementById('race').textContent}" | bots alive ${g.babos.filter(b => !b.human && b.alive).length} | music ${g.audio.music.track}/${g.audio.music.intensity}`; });
+const ws = p => p.evaluate(() => { const g = window.__game, w = g.wv; return `wave ${w.n} lives ${w.lives} break ${w.breakT.toFixed(1)} boss ${w.boss} out [${[...w.out]}] | clock "${document.getElementById('clock').textContent}" race "${document.getElementById('race').textContent}" | bots alive ${g.babos.filter(b => !b.human && b.alive).length} | music ${g.audio.music.track}/${g.audio.music.intensity} | skill ${g.director.skill.toFixed(2)} adaptive ${g.director.adaptive}`; });
 await A.waitForTimeout(6000);
 console.log('A:', await ws(A)); console.log('B:', await ws(B));
 // jump the host to the end of wave 4 so wave 5 (boss) comes next

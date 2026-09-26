@@ -44,7 +44,8 @@ export function thinkBot(g: Game, b: Babo, dt: number, diff: { react: number; ai
       if (d > far) continue;
       const vis = g.arena.raycast(b.x, b.z, o.x, o.z, b.y + 0.55, true, CLIMB) < 0;
       if (!vis && d > (g.mode.waves ? 80 : 9)) continue;
-      let s = d + (vis ? 0 : 8) - (o.id === br.target ? 3 : 0) - (o.hp < 40 ? 2.5 : 0) - (o.id === b.lastHitBy ? 3 : 0) + (o.spawnShield > 0 ? 6 : 0);
+      const lead = g.mode.waves && o.id === g.waveLeader ? 2.5 : 0;
+      let s = d - lead + (vis ? 0 : 8) - (o.id === br.target ? 3 : 0) - (o.hp < 40 ? 2.5 : 0) - (o.id === b.lastHitBy ? 3 : 0) + (o.spawnShield > 0 ? 6 : 0);
       if (s < bestScore) { bestScore = s; best = o.id; }
     }
     if (best !== br.target) br.seen = 0;

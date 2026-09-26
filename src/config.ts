@@ -117,11 +117,8 @@ export const MAPS = {
 export type MapChoice = keyof typeof MAPS;
 /** Hold the Fort. Lives are shared by the defenders; a death with none left sits you out until the next wave. */
 export const WAVES = {
-  lives: 3, livesDuo: 5, maxLives: 9, breakT: 6, firstBreak: 3, spawnGap: 0.7,
-  count: (n: number, humans: number) => Math.round((2 + n * 1.5) * (humans > 1 ? 1.5 : 1)),
-  maxAlive: (n: number, humans: number) => Math.min(8, 2 + Math.ceil(n / 2) + humans),
-  guns: (n: number): WeaponId[] => n <= 2 ? ['pistol', 'shotgun', 'chaingun'] : n <= 4 ? ['pistol', 'shotgun', 'chaingun', 'bouncer'] : n <= 6 ? ['shotgun', 'chaingun', 'bouncer', 'rocket'] : ['shotgun', 'chaingun', 'bouncer', 'rocket', 'railgun'],
-};
+  lives: 3, livesDuo: 5, maxLives: 9, breakT: 6, firstBreak: 3,
+};   // wave size, pace, guns and bot skill come from the director (src/director.ts)
 export const BOSS = { hp: 450, every: 5, speed: 0.8, knock: 0.3 };
 export const MATCH = { fragLimit: 20, timeLimit: 240, bots: 7 };
 
@@ -150,11 +147,13 @@ export const COLORS = [
 
 export const BOT_NAMES = ['Pip', 'Bonk', 'Marble', 'Gumball', 'Rolo', 'Pebble', 'Nugget', 'Dot', 'Jawbreaker', 'Bouncer', 'Knuckles', 'Orbit'];
 
-export type Difficulty = 'easy' | 'normal' | 'hard';
+export type Difficulty = 'easy' | 'normal' | 'hard' | 'adaptive';
 export const DIFFICULTY: Record<Difficulty, { react: number; aimErr: number; lead: number; nade: number; label: string }> = {
   easy: { react: 0.55, aimErr: 0.22, lead: 0.3, nade: 0.25, label: 'Easy' },
   normal: { react: 0.32, aimErr: 0.12, lead: 0.7, nade: 0.6, label: 'Normal' },
   hard: { react: 0.18, aimErr: 0.06, lead: 0.95, nade: 1, label: 'Hard' },
+  // Hold the Fort sizes every wave to you (src/director.ts); elsewhere it plays like Normal
+  adaptive: { react: 0.32, aimErr: 0.12, lead: 0.7, nade: 0.6, label: 'Adaptive' },
 };
 
 /** Where the hosted (GitHub Pages) build lives; shown in the claude.ai artifact's lobby. */

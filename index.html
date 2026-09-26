@@ -203,7 +203,12 @@ body.touch #wpn { left: auto; right: calc(14px + var(--sa-r)); transform: none; 
 .mode-btn.fort { background: linear-gradient(#b9f5d0, #3ee08f); }
 #race .lives { color: #ff6b8a; letter-spacing: 1px; margin-right: 6px; }
 #race .lives i { font-style: normal; opacity: .3; }
-.lobby-opts { display: grid; grid-template-columns: 1fr 1.4fr; gap: 12px; }
+#race .threat { display: inline-flex; gap: 2px; align-items: flex-end; margin: 0 8px 0 2px; height: 14px; vertical-align: middle; }
+#race .threat b, #race .threat i { width: 4px; border-radius: 2px; background: var(--c, #ffd83a); }
+#race .threat i { background: rgba(255,248,236,0.18); }
+#race .threat > :nth-child(1) { height: 5px; } #race .threat > :nth-child(2) { height: 7px; } #race .threat > :nth-child(3) { height: 9px; } #race .threat > :nth-child(4) { height: 11px; } #race .threat > :nth-child(5) { height: 14px; }
+#race .threat.t1, #race .threat.t2 { --c: #3ee08f; } #race .threat.t3 { --c: #ffd83a; } #race .threat.t4 { --c: #ff8a2a; } #race .threat.t5 { --c: #ff4a4a; }
+.lobby-opts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .lobby-opts .seg button { padding: 5px 4px; font-size: 13px; }
 .kit-note { font-style: normal; font-size: 13px; font-weight: 700; color: var(--muted); padding: 4px 0; }
 #feed .spiked span { color: #ff8a8a; font-weight: 900; }

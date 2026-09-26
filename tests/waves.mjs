@@ -11,7 +11,7 @@ await p.goto('http://127.0.0.1:8766/', { waitUntil: 'domcontentloaded' }); await
 await p.mouse.click(5, 5);   // a gesture, so the menu music starts
 await p.waitForTimeout(600);
 console.log('menu music:', await p.evaluate(() => { const m = window.__game.audio.music; return [m.track, m.intensity, window.__game.audio.ctx?.state]; }));
-await p.evaluate(() => { const g = window.__game; g.r.setQuality('low'); g.r.flags.shadows = false; g.r.applyFlags(); g.saved.soloMode = 'waves'; g.saved.map = 'random'; g.saved.difficulty = 'normal'; g.startSolo(); });
+await p.evaluate(() => { const g = window.__game; g.r.setQuality('low'); g.r.flags.shadows = false; g.r.applyFlags(); g.saved.soloMode = 'waves'; g.saved.map = 'random'; g.saved.difficulty = 'adaptive'; g.startSolo(); });
 await p.waitForTimeout(500);
 const sim = (secs) => p.evaluate(async (secs) => {
   const g = window.__game; if (g.state === 'countdown') g.go();
@@ -21,7 +21,7 @@ const sim = (secs) => p.evaluate(async (secs) => {
     g.step(1 / 120);
     if (g.wv.boss >= 0) bossSeen = true;
     if (g.wv.n !== last) { last = g.wv.n; log.push(`w${g.wv.n}@${Math.round(g.matchT)}s`); }
-    if (i % 60 === 0) g.tick(0, false);   // let the HUD and music update now and then
+    if (i % 60 === 0) { g.tick(0, false); g.hud.update(0.3); }   // let the HUD and music update now and then
   }
   g.player.isPlayer = true;
   const bots = g.babos.filter(b => !b.human);
