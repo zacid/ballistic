@@ -570,10 +570,12 @@ export class Game {
       if (f.t <= 0) { this.fires.splice(i, 1); continue; }
       if (Math.random() < dt * 14) this.fx.glow(f.x + (Math.random() - 0.5) * 0.9, f.y + 0.15, f.z + (Math.random() - 0.5) * 0.9, 0, 1.4 + Math.random(), 0, 0.12 + Math.random() * 0.12, Math.random() < 0.5 ? 0xff7a2a : 0xffc94a, 0.35, 0);
       const att = this.babos[f.owner]; if (!att?.local) continue;
+      const tick = Math.floor((f.t + dt) * 4) !== Math.floor(f.t * 4);   // four times a second
       for (const v of this.babos) {
-        if (v === att || !v.alive || !this.canDamage(att, v) || v.burnT > BURN.t - 0.4) continue;
+        if (v === att || !v.alive || !this.canDamage(att, v)) continue;
         if (Math.hypot(v.x - f.x, v.z - f.z) > BURN.patchR || Math.abs(v.y - f.y) > 0.6) continue;
-        this.hit(att, v, 0, 0, 0, 0, 1);
+        // standing in the fire hurts on top of the afterburn
+        if (tick) this.hit(att, v, BURN.patchDps / 4, 0, 0, 0, v.burnT > BURN.t - 0.4 ? 0 : 1);
       }
     }
   }

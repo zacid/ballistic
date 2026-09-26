@@ -3,6 +3,7 @@ import type { Game } from './game';
 import type { Babo } from './babo';
 import { ONLINE_URL, ABILITIES, AbilityId, BALL, COLORS, DIFFICULTY, Difficulty, GRENADE, LADDER, MAPS, MapChoice, ModeId, MODES, PICKABLE, START_WEAPON, WEAPONS, WeaponId } from './config';
 import { QUALITY, Quality } from './render';
+import { buildGun } from './babo';
 import type { RenderFlags } from './render';
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -79,15 +80,7 @@ export class Hud {
 
   // ---------- menu ----------
   private buildMenu() {
-    const cards = $('cards'); cards.innerHTML = '';
-    const bar = (label: string, v: number) => `<div class="stat"><span>${label}</span><i><b style="width:${Math.round(v * 100)}%"></b></i></div>`;
-    for (const w of PICKABLE.map(id => WEAPONS[id])) {
-      const c = document.createElement('button');
-      c.className = 'card info'; c.dataset.id = w.id; c.tabIndex = -1;
-      const tag = w.id === START_WEAPON ? 'START' : w.ammo ? `${w.ammo} SHOTS` : 'PICK UP';
-      c.innerHTML = `<div class="key${w.ammo ? ' power' : ''}">${tag}</div><h2 style="color:${hex(w.color)}">${w.name}</h2><p>${w.blurb}</p>${bar('POWER', w.stats.power)}${bar('RANGE', w.stats.range)}${bar('FIRE RATE', w.stats.rate)}`;
-      cards.appendChild(c);
-    }
+    this.buildArsenal();
     const ab = $('abilities'); ab.innerHTML = '';
     for (const a of Object.values(ABILITIES)) {
       const c = document.createElement('button');
@@ -116,9 +109,34 @@ export class Hud {
     const sm = this.g.saved.soloMode, gg = sm === 'gungame';
     $('tagline').textContent = gg ? 'Gun Game: every pop moves you up a weapon. Pop someone with spikes to win.'
       : sm === 'waves' ? `Hold the Fort: survive the waves from the keep.${this.g.saved.bestWave ? ` Best: wave ${this.g.saved.bestWave}.` : ''}`
-      : 'Eight toy balls, six guns, one arena. First to 20 pops wins.';
-    $('cards-label').textContent = gg ? 'THE GUNS (GUN GAME HANDS THEM OUT IN ORDER)' : 'THE GUNS: START WITH A PISTOL, ROLL OVER THE REST TO PICK THEM UP';
+      : 'Eight toy balls, eight guns, one arena. First to 20 pops wins.';
+    $('cards-label').textContent = gg ? 'Gun Game hands these out in order, rockets first.' : 'Start with a pistol. Roll over a gun in the arena to grab it.';
     $('best').textContent = this.g.saved.best ? `Best finish: ${ordinal(this.g.saved.best)}` : '';
+  }
+
+  /** Compact gun strip: a rendered thumbnail per gun; hover or tap one for its details underneath. */
+  private arsenalSel: WeaponId = START_WEAPON;
+  private buildArsenal() {
+    const cards = $('cards'); cards.innerHTML = '';
+    const order: WeaponId[] = [START_WEAPON, ...PICKABLE.filter(w => w !== START_WEAPON && !WEAPONS[w].ammo), ...PICKABLE.filter(w => WEAPONS[w].ammo)];
+    const thumbs = gunThumbs();
+    for (const id of order) {
+      const w = WEAPONS[id];
+      const c = document.createElement('button');
+      c.className = 'gun' + (id === this.arsenalSel ? ' sel' : ''); c.style.setProperty('--c', hex(w.color));
+      const tag = id === START_WEAPON ? '<span class="tg start">START</span>' : w.ammo ? `<span class="tg power">POWER &middot; ${w.ammo}</span>` : '<span class="tg">PICK UP</span>';
+      c.innerHTML = `<img alt="" src="${thumbs[id] ?? ''}"><span class="nm">${w.name}</span>${tag}`;
+      c.setAttribute('aria-label', `${w.name}: ${w.blurb}`);
+      const show = () => { this.arsenalSel = id; cards.querySelectorAll('.gun').forEach(e => e.classList.toggle('sel', e === c)); this.gunInfo(); };
+      c.addEventListener('mouseenter', show); c.addEventListener('focus', show); c.addEventListener('click', show);
+      cards.appendChild(c);
+    }
+    this.gunInfo();
+  }
+  private gunInfo() {
+    const w = WEAPONS[this.arsenalSel];
+    const bar = (label: string, v: number) => `<div class="stat"><span>${label}</span><i><b style="width:${Math.round(v * 100)}%"></b></i></div>`;
+    $('gun-info').innerHTML = `<div class="txt"><b style="color:${hex(w.color)}">${w.name}</b>${w.blurb}</div><div>${bar('POWER', w.stats.power)}${bar('RANGE', w.stats.range)}${bar('FIRE RATE', w.stats.rate)}</div>`;
   }
 
   /** Bot difficulty and arena pickers; the menu and the lobby both have a pair. */
@@ -505,6 +523,34 @@ export class Hud {
     }
     void this.deathKiller;
   }
+}
+
+/** Render each gun model once into a small transparent picture for the menu. */
+let thumbCache: Partial<Record<WeaponId, string>> | null = null;
+function gunThumbs() {
+  if (thumbCache) return thumbCache;
+  thumbCache = {};
+  try {
+    const W = 192, H = 120;
+    const r = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true });
+    r.setSize(W, H, false); r.setPixelRatio(1); r.outputColorSpace = THREE.SRGBColorSpace;
+    const scene = new THREE.Scene();
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x445066, 1.6));
+    const sun = new THREE.DirectionalLight(0xffffff, 2.2); sun.position.set(2, 4, 3); scene.add(sun);
+    const cam = new THREE.PerspectiveCamera(30, W / H, 0.1, 50);
+    cam.position.set(0.4, 1.1, 3.4); cam.lookAt(0, 0, 0);
+    for (const id of PICKABLE) {
+      const gun = buildGun(id, WEAPONS[id].color);
+      gun.rotation.set(0.25, -Math.PI / 2 + 0.35, 0);
+      const box = new THREE.Box3().setFromObject(gun), size = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3());
+      const k = 2.3 / Math.max(size.x, size.y * 1.6, size.z, 0.01);
+      gun.scale.setScalar(k); gun.position.set(-c.x * k, -c.y * k, -c.z * k);
+      scene.add(gun); r.render(scene, cam); scene.remove(gun);
+      thumbCache[id] = r.domElement.toDataURL('image/png');
+    }
+    r.dispose(); r.forceContextLoss();
+  } catch { /* no WebGL for thumbnails: names still show */ }
+  return thumbCache;
 }
 
 export function ordinal(n: number) { const s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }

@@ -66,9 +66,9 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     stats: { power: 0.55, range: 0.6, rate: 0.5 },
   },
   flamethrower: {
-    id: 'flamethrower', name: 'Flamethrower', blurb: 'Short range. Sets balls alight, and the floor burns for a moment.', icon: 'FT',
+    id: 'flamethrower', name: 'Flamethrower', blurb: 'Melts anything point blank. Sets balls alight; the floor burns too.', icon: 'FT',
     kind: 'flame', rate: 18, clip: 90, reload: 2, pellets: 1, spread: 0.32, speed: 11, life: 0.45,
-    damage: 5, knock: 0.15, recoil: 0, color: 0xff7a2a, preferred: 3.2,
+    damage: 9, falloff: 0.72, knock: 0.15, recoil: 0, color: 0xff7a2a, preferred: 2.4,
     stats: { power: 0.8, range: 0.25, rate: 1 },
   },
   gravity: {
@@ -101,7 +101,7 @@ export const START_WEAPON: WeaponId = 'pistol';
 /** Guns that lie around the map, most contested spots first. */
 export const MAP_GUNS: WeaponId[] = ['rocket', 'railgun', 'flamethrower', 'shotgun', 'gravity', 'chaingun', 'bouncer', 'shotgun'];
 /** Flamethrower afterburn and the gravity gun's pull / wall-slam numbers. */
-export const BURN = { t: 2.2, dps: 12, patchT: 1.6, patchR: 0.75 };
+export const BURN = { t: 2.2, dps: 12, patchT: 1.6, patchR: 0.75, patchDps: 22 };
 export const GRAV = { pull: 62, hold: 1.7, maxHold: 2.5, flingR: 3.2, slamSpeed: 6, slamDmg: 4, slamMax: 50 };
 export const GUN_RESPAWN = { normal: 12, power: 22, dropLife: 12, maxDrops: 10 };
 /** Guns you can pick in the loadout (Gun Game adds the hidden ones). */
