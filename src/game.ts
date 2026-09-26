@@ -4,7 +4,7 @@ import { CLIMB, Arena, CELL } from './arena';
 import { Audio } from './audio';
 import { Babo, buildGun, makeBabo, setBoss, setTeamRing, setWeapon, updateBaboVisual } from './babo';
 import {
-  ABILITIES, AbilityId, BALL, BOSS, BOT_NAMES, GUN_RESPAWN, MAP_GUNS, START_WEAPON, COLORS, DASH, DIFFICULTY, Difficulty, GRENADE, LADDER, MapChoice, MODES, ModeDef, ModeId,
+  ABILITIES, AbilityId, BALL, BOSS, BOT_NAMES, BURN, GRAV, MINE, GUN_RESPAWN, MAP_GUNS, START_WEAPON, COLORS, DASH, DIFFICULTY, Difficulty, GRENADE, LADDER, MapChoice, MODES, ModeDef, ModeId,
   PICKABLE, SPIKES, WAVE, WAVES, WEAPONS, WeaponId,
 } from './config';
 import type { MapId } from './arena';
@@ -25,6 +25,8 @@ interface Shot { owner: number; x: number; y: number; z: number; vx: number; vz:
 interface Nade { owner: number; x: number; y: number; z: number; vx: number; vy: number; vz: number; fuse: number; mesh: THREE.Mesh; cosmetic: boolean }
 type PickKind = 'health' | 'nades' | 'mega';
 interface Pickup { kind: PickKind | 'weapon'; x: number; z: number; t: number; mesh: THREE.Group; w?: WeaponId; drop?: string; ttl?: number }
+interface Mine { owner: number; x: number; z: number; y: number; arm: number; life: number; mesh: THREE.Group; cosmetic: boolean }
+interface Fire { owner: number; x: number; z: number; y: number; t: number }
 interface Rail { owner: number; x0: number; z0: number; x1: number; z1: number; y: number; t: number; hit: Set<number> }
 
 const RESPAWN: Record<PickKind, number> = { health: 11, nades: 13, mega: 30 };
@@ -68,6 +70,10 @@ export class Game {
   babos: Babo[] = [];
   shots: Shot[] = [];
   rails: Rail[] = [];
+  mines: Mine[] = [];
+  fires: Fire[] = [];
+  private gravImp = new Map<string, { x: number; z: number }>();
+  private gravSendT = 0;
   nades: Nade[] = [];
   pickups: Pickup[] = [];
   state: 'menu' | 'lobby' | 'countdown' | 'playing' | 'over' = 'menu';
@@ -199,7 +205,8 @@ export class Game {
     for (const b of this.babos) this.r.scene.remove(b.root);
     for (const s of this.shots) if (s.mesh) this.r.scene.remove(s.mesh);
     for (const n of this.nades) this.r.scene.remove(n.mesh);
-    this.babos = []; this.shots = []; this.nades = []; this.rails = [];
+    for (const m of this.mines) this.r.scene.remove(m.mesh);
+    this.babos = []; this.shots = []; this.nades = []; this.rails = []; this.mines = []; this.fires = [];
     this.mode = mode; this.seed = seed; this.endReason = ''; this.map = map;
     this.newArena(mode.size, map);
     this.fx.clear();
@@ -401,7 +408,7 @@ export class Game {
   // ---------- combat ----------
   fire(b: Babo) {
     const w = WEAPONS[b.weapon];
-    if (w.kind === 'melee') return;
+    if (w.kind === 'melee' || w.kind === 'grav') return;
     if (w.kind === 'lob') {
       if (b.cool > 0) return;
       b.cool = 1 / w.rate; b.spawnShield = 0;
@@ -436,8 +443,8 @@ export class Game {
     }
     b.recoilZ = w.kind === 'rocket' || w.kind === 'rail' ? 0.25 : w.pellets > 1 ? 0.2 : 0.06;
     const fx = b.x + b.aimX * 1.1, fz = b.z + b.aimZ * 1.1;
-    this.fx.flash(fx, 0.9 + b.y, fz, w.color, w.pellets > 1 ? 14 : w.kind === 'rocket' ? 10 : 5, 0.07);
-    const n = w.pellets > 1 ? 7 : 3;
+    this.fx.flash(fx, 0.9 + b.y, fz, w.color, w.pellets > 1 ? 14 : w.kind === 'rocket' ? 10 : w.kind === 'flame' ? 3 : 5, 0.07);
+    const n = w.pellets > 1 ? 7 : w.kind === 'flame' ? 0 : 3;
     for (let i = 0; i < n; i++) {
       const a = base + (Math.random() - 0.5) * (w.pellets > 1 ? 0.8 : 0.5), s = 4 + Math.random() * 6;
       this.fx.glow(fx, sy, fz, Math.cos(a) * s, Math.random() * 2, Math.sin(a) * s, 0.06 + Math.random() * 0.06, w.color, 0.08 + Math.random() * 0.06);
@@ -466,6 +473,146 @@ export class Game {
       if (Math.hypot(v.x - px, v.z - pz) > v.rad + 0.1) continue;
       this.hit(b, v, w.damage, b.aimX * w.knock, b.aimZ * w.knock, 2); hitSet.add(v.id);
       for (let k = 0; k < 6; k++) this.fx.bit(v.x, v.y + 0.5, v.z, b.aimX * 6 + (Math.random() - 0.5) * 4, 2 + Math.random() * 3, b.aimZ * 6 + (Math.random() - 0.5) * 4, 0.07, v.color, 0.7);
+    }
+  }
+
+  // ---------- gravity gun ----------
+  /** Hold: drag balls in the cone towards a point in front of the gun. Release: fling whatever is close. */
+  private stepGrav(b: Babo, dt: number) {
+    const w = WEAPONS.gravity;
+    if (b.fire && b.cool <= 0 && b.gravT < GRAV.maxHold) {
+      if (b.gravT === 0) this.audio.play('gravity', b.x, b.z);
+      b.gravT += dt; b.spawnShield = 0;
+      const hx = b.x + b.aimX * GRAV.hold, hz = b.z + b.aimZ * GRAV.hold;
+      for (const v of this.babos) {
+        if (v === b || !v.alive || !this.canDamage(b, v) || Math.abs(v.y - b.y) > 1.3) continue;
+        const dx = v.x - b.x, dz = v.z - b.z, d = Math.hypot(dx, dz);
+        if (d > w.range! || d < 0.01) continue;
+        if ((dx * b.aimX + dz * b.aimZ) / d < Math.cos(0.5) && d > 2.2) continue;
+        if (this.arena.raycast(b.x, b.z, v.x, v.z, b.y + 0.55, true, CLIMB) >= 0) continue;
+        const px = hx - v.x, pz = hz - v.z, pd = Math.hypot(px, pz) || 1;
+        const k = GRAV.pull * Math.min(1, Math.max(0.2, pd / 1.5)) * dt * (v.boss ? 0.35 : 1);
+        let ix = (px / pd) * k, iz = (pz / pd) * k;
+        if (v.local) { v.vx += ix; v.vz += iz; v.vx *= Math.exp(-2.5 * dt); v.vz *= Math.exp(-2.5 * dt); }
+        else {
+          // remote balls: batch the pull into a few small shoves a second
+          const key = `${b.id}:${v.id}`, acc = this.gravImp.get(key) ?? { x: 0, z: 0 };
+          acc.x += ix; acc.z += iz; this.gravImp.set(key, acc);
+        }
+        if (Math.random() < dt * 30) this.fx.glow(v.x, v.y + 0.5, v.z, px * 0.5, 0.3, pz * 0.5, 0.07, w.color, 0.25, 0);
+        void ix; void iz;
+      }
+      this.gravFx(b, dt);
+      return;
+    }
+    if (b.gravT > 0) {
+      // let go (or held too long): fling
+      b.gravT = 0; b.cool = 1 / w.rate;
+      for (const v of this.babos) {
+        if (v === b || !v.alive || !this.canDamage(b, v) || Math.abs(v.y - b.y) > 1.3) continue;
+        const dx = v.x - b.x, dz = v.z - b.z, d = Math.hypot(dx, dz);
+        if (d > GRAV.flingR || (d > 1.2 && (dx * b.aimX + dz * b.aimZ) / d < 0.3)) continue;
+        this.hit(b, v, w.damage, b.aimX * w.knock, b.aimZ * w.knock, 5, 2);
+      }
+      b.vx -= b.aimX * w.recoil; b.vz -= b.aimZ * w.recoil;
+      this.flingFx(b);
+    }
+  }
+
+  /** Send the batched gravity-gun pull on remote balls (20 times a second). */
+  private flushGrav(dt: number) {
+    this.gravSendT -= dt; if (this.gravSendT > 0 || !this.gravImp.size) return;
+    this.gravSendT = 0.05;
+    for (const [key, acc] of this.gravImp) {
+      const [a, v] = key.split(':').map(Number);
+      const att = this.babos[a], vic = this.babos[v];
+      if (att && vic) this.hit(att, vic, 0, acc.x, acc.z, 0);
+    }
+    this.gravImp.clear();
+  }
+
+  gravFx(b: Babo, dt: number) {
+    const w = WEAPONS.gravity;
+    const mx = b.x + b.aimX * 0.8, mz = b.z + b.aimZ * 0.8, hx = b.x + b.aimX * GRAV.hold, hz = b.z + b.aimZ * GRAV.hold;
+    if (Math.random() < dt * 50) {
+      const t = Math.random(), sw = Math.sin(this.clock * 20 + t * 9) * 0.25;
+      this.fx.glow(mx + (hx - mx) * t - b.aimZ * sw, b.y + 0.55, mz + (hz - mz) * t + b.aimX * sw, -b.aimX * 2, 0, -b.aimZ * 2, 0.06 + Math.random() * 0.05, w.color, 0.2, 0);
+    }
+    if (Math.random() < dt * 25) {
+      const a = Math.random() * Math.PI * 2, r = 1.2;
+      this.fx.glow(hx + Math.cos(a) * r, b.y + 0.55, hz + Math.sin(a) * r, -Math.cos(a) * 5, 0, -Math.sin(a) * 5, 0.05, 0xd4f4ff, 0.22, 0);
+    }
+  }
+
+  flingFx(b: Babo) {
+    const w = WEAPONS.gravity;
+    this.audio.play('fling', b.x, b.z);
+    const fx = b.x + b.aimX * 1.6, fz = b.z + b.aimZ * 1.6;
+    this.fx.ring(fx, fz, GRAV.flingR, w.color, 0.25, b.gy);
+    this.fx.flash(fx, b.y + 0.6, fz, w.color, 20, 0.15);
+    for (let i = 0; i < 14; i++) { const a = Math.atan2(b.aimZ, b.aimX) + (Math.random() - 0.5) * 1.2, s = 6 + Math.random() * 8; this.fx.glow(fx, b.y + 0.55, fz, Math.cos(a) * s, 0.5, Math.sin(a) * s, 0.07, w.color, 0.3, 0); }
+    b.recoilZ = 0.3;
+  }
+
+  // ---------- fire ----------
+  /** Burning balls and flames on the floor. The attacker's owner deals the damage. */
+  private stepBurn(dt: number) {
+    for (const v of this.babos) {
+      if (v.burnT <= 0 || !v.alive) continue;
+      const before = v.burnT; v.burnT -= dt;
+      if (Math.random() < dt * 30) this.fx.glow(v.x + (Math.random() - 0.5) * 0.6, v.y + 0.5 + Math.random() * 0.4, v.z + (Math.random() - 0.5) * 0.6, 0, 1.6, 0, 0.1 + Math.random() * 0.12, Math.random() < 0.5 ? 0xff8a2a : 0xffd35a, 0.3, 0);
+      const att = this.babos[v.burnBy];
+      // a quarter-second tick of afterburn
+      if (att?.local && Math.floor(before * 4) !== Math.floor(Math.max(0, v.burnT) * 4)) this.hit(att, v, BURN.dps / 4, 0, 0, 0);
+    }
+    for (let i = this.fires.length - 1; i >= 0; i--) {
+      const f = this.fires[i]; f.t -= dt;
+      if (f.t <= 0) { this.fires.splice(i, 1); continue; }
+      if (Math.random() < dt * 14) this.fx.glow(f.x + (Math.random() - 0.5) * 0.9, f.y + 0.15, f.z + (Math.random() - 0.5) * 0.9, 0, 1.4 + Math.random(), 0, 0.12 + Math.random() * 0.12, Math.random() < 0.5 ? 0xff7a2a : 0xffc94a, 0.35, 0);
+      const att = this.babos[f.owner]; if (!att?.local) continue;
+      for (const v of this.babos) {
+        if (v === att || !v.alive || !this.canDamage(att, v) || v.burnT > BURN.t - 0.4) continue;
+        if (Math.hypot(v.x - f.x, v.z - f.z) > BURN.patchR || Math.abs(v.y - f.y) > 0.6) continue;
+        this.hit(att, v, 0, 0, 0, 0, 1);
+      }
+    }
+  }
+
+  // ---------- mines ----------
+  private addMine(b: Babo) {
+    const own = this.mines.filter(m => m.owner === b.id);
+    if (own.length >= MINE.max) this.removeMine(own[0], true);
+    const x = b.x - b.aimX * 0.2, z = b.z - b.aimZ * 0.2, y = this.arena.floorAt(x, z);
+    const mesh = mineMesh(b.color); mesh.position.set(x, y, z); this.r.scene.add(mesh);
+    this.mines.push({ owner: b.id, x, z, y, arm: MINE.arm, life: MINE.life, mesh, cosmetic: !b.local });
+    this.audio.play('mine', x, z);
+  }
+
+  private removeMine(m: Mine, fizzle = false) {
+    const i = this.mines.indexOf(m); if (i < 0) return;
+    this.r.scene.remove(m.mesh); this.mines.splice(i, 1);
+    if (fizzle) this.fx.puff(m.x, m.y + 0.2, m.z, 0.3, 0.5);
+  }
+
+  private removeMineNear(owner: number, x: number, z: number) {
+    let best: Mine | null = null, bd = 3;
+    for (const m of this.mines) if (m.owner === owner) { const d = Math.hypot(m.x - x, m.z - z); if (d < bd) { bd = d; best = m; } }
+    if (best) this.removeMine(best);
+  }
+
+  private stepMines(dt: number) {
+    for (const m of [...this.mines]) {
+      m.arm -= dt; m.life -= dt;
+      const light = m.mesh.userData.light as THREE.Mesh;
+      light.visible = m.arm > 0 ? Math.sin(this.clock * 30) > 0 : Math.sin(this.clock * 6) > 0.6;
+      if (m.life <= 0) { this.removeMine(m, true); continue; }
+      if (m.cosmetic || m.arm > 0) continue;
+      const att = this.babos[m.owner]; if (!att) continue;
+      const trip = this.babos.some(v => v !== att && v.alive && this.canDamage(att, v) && Math.abs(v.y - m.y) < 1 && Math.hypot(v.x - m.x, v.z - m.z) < MINE.trigger + v.rad - BALL.radius);
+      if (!trip) continue;
+      this.removeMine(m);
+      this.explode(m.x, m.z, m.owner, MINE.radius, MINE.damage, MINE.knock, true, m.y);
+      if (this.online) this.net.send({ k: 'boom', o: m.owner, x: r2(m.x), z: r2(m.z), r: MINE.radius, y: r2(m.y), m: 1 });
     }
   }
 
@@ -525,25 +672,30 @@ export class Game {
   }
 
   /** The attacker's owner decides every hit. Local victims take it now; remote ones get a message. */
-  hit(att: Babo, v: Babo, dmg: number, kx: number, kz: number, vy = 0) {
+  /** flag: 1 sets them alight (flamethrower), 2 marks them as flung (gravity gun wall slams). */
+  hit(att: Babo, v: Babo, dmg: number, kx: number, kz: number, vy = 0, flag = 0) {
     if (!att.local || !v.alive || !this.canDamage(att, v)) return;
     if (this.mode.waves && !att.human && v.human) dmg *= this.director.botDamage(this.wv.n);
-    if (att.isPlayer && v !== att && v.spawnShield <= 0) { this.hud.floater(v.x, v.z, Math.round(dmg * (v.abT > 0 && v.ability === 'bubble' ? 0.3 : 1))); this.audio.play('hit', undefined, undefined, 0.8); }
-    if (v.local) this.applyDamage(v, dmg, att.id, kx, kz, vy);
+    if (flag & 1) { v.burnT = BURN.t; v.burnBy = att.id; }
+    if (flag & 2) { v.flungT = 1; v.flungBy = att.id; }
+    if (att.isPlayer && v !== att && v.spawnShield <= 0 && dmg >= 1) { this.hud.floater(v.x, v.z, Math.round(dmg * (v.abT > 0 && v.ability === 'bubble' ? 0.3 : 1))); this.audio.play('hit', undefined, undefined, 0.8); }
+    if (v.local) this.applyDamage(v, dmg, att.id, kx, kz, vy, flag);
     else {
       v.hurtT = 0.12;
-      this.net.send({ k: 'hit', v: v.id, a: att.id, d: r2(dmg), x: r2(kx), z: r2(kz), y: r2(vy) });
+      this.net.send({ k: 'hit', v: v.id, a: att.id, d: r2(dmg), x: r2(kx), z: r2(kz), y: r2(vy), ...(flag ? { f: flag } : {}) });
     }
   }
 
-  applyDamage(v: Babo, dmg: number, by: number, kx: number, kz: number, vy = 0) {
+  applyDamage(v: Babo, dmg: number, by: number, kx: number, kz: number, vy = 0, flag = 0) {
     if (!v.alive) return;
+    if (flag & 1) { v.burnT = BURN.t; v.burnBy = by; }
+    if (flag & 2) { v.flungT = 1; v.flungBy = by; }
     if (v.abT > 0 && v.ability === 'bubble') { dmg *= 0.3; kx *= 0.3; kz *= 0.3; vy *= 0.3; }
     if (v.abT > 0 && v.ability === 'dash') { kx = kz = vy = 0; }
     if (v.boss) { kx *= BOSS.knock; kz *= BOSS.knock; vy *= BOSS.knock; }
     v.vx += kx; v.vz += kz; v.vy += vy;
     if (v.spawnShield > 0) return;
-    v.hp -= dmg; v.hurtT = 0.12;
+    v.hp -= dmg; if (dmg >= 1) v.hurtT = 0.12;
     if (by !== v.id) { v.lastHitBy = by; v.lastHitT = this.clock; }
     if (v.isPlayer) { this.hud.hurt(Math.min(1, dmg / 40)); this.r.addShake(Math.min(0.5, dmg / 60)); this.audio.play('hurt'); }
     if (v.hp <= 0) {
@@ -557,7 +709,7 @@ export class Game {
   /** Runs on every client for every death (local ones directly, remote ones from the network). */
   onDeath(v: Babo, killer: number) {
     if (!v.root.visible && !v.alive && !v.local) { /* already hidden by snapshot; still show the burst */ }
-    v.alive = false; v.root.visible = false; v.deaths++; v.streak = 0; v.abT = 0;
+    v.alive = false; v.root.visible = false; v.deaths++; v.streak = 0; v.abT = 0; v.burnT = 0; v.flungT = 0; v.gravT = 0;
     if (v.local) v.respawnT = BALL.respawn;
     const k = this.babos[killer];
     const knifed = !!(k && k !== v && k.weapon === 'spikes');
@@ -668,6 +820,7 @@ export class Game {
 
   /** Effects only; also used when a remote ball's ability counter changes. */
   abilityFx(b: Babo) {
+    if (b.ability === 'mine') { this.addMine(b); return; }
     if (b.ability === 'dash') {
       this.audio.play('dash', b.x, b.z);
       for (let i = 0; i < 8; i++) this.fx.puff(b.x, 0.3, b.z, 0.22, 0.35, (Math.random() - 0.5) * 2, 0.5, (Math.random() - 0.5) * 2, 1.2);
@@ -744,6 +897,8 @@ export class Game {
       b.wantAbility = false;
       if (!b.fire) b.semiLock = false;
       if (b.fire && live) this.fire(b);
+      if (live && WEAPONS[b.weapon].kind === 'grav') this.stepGrav(b, dt);
+      b.flungT = Math.max(0, b.flungT - dt);
       this.stepAbility(b, dt);
       this.physics(b, dt);
     }
@@ -765,6 +920,8 @@ export class Game {
     }
     this.stepShots(dt);
     this.stepRails(dt);
+    this.stepBurn(dt);
+    this.stepMines(dt);
     this.stepNades(dt);
     this.stepPickups(dt);
   }
@@ -779,7 +936,11 @@ export class Game {
     b.cool -= dt;
     if (b.abT > 0) b.abT -= dt;
     const kind = WEAPONS[b.weapon].kind;
-    if (b.alive && b.netFire && !b.netReload && b.cool <= 0 && this.state === 'playing' && kind !== 'lob' && kind !== 'melee') {
+    if (kind === 'grav' && b.alive) {
+      if (b.netFire) { b.gravT += dt; this.gravFx(b, dt); }
+      else if (b.gravT > 0) { this.flingFx(b); b.gravT = 0; }
+    }
+    if (b.alive && b.netFire && !b.netReload && b.cool <= 0 && this.state === 'playing' && kind !== 'lob' && kind !== 'melee' && kind !== 'grav') {
       b.cool = 1 / WEAPONS[b.weapon].rate; this.spawnShots(b);
     }
     if (b.abT > 0 && b.ability === 'dash' && Math.random() < dt * 40) this.fx.glow(b.x, 0.4 + b.y, b.z, -b.vx * 0.1, 0.5, -b.vz * 0.1, 0.12, b.color, 0.25);
@@ -789,7 +950,9 @@ export class Game {
     const dashing = b.abT > 0 && b.ability === 'dash';
     const ml = Math.hypot(b.moveX, b.moveZ);
     const sp = Math.hypot(b.vx, b.vz);
+    const flung = b.flungT > 0.45;   // just flung by a gravity gun: no steering, barely any friction
     if (dashing) { /* keep the burst */ }
+    else if (flung) { const k = Math.exp(-0.7 * dt); b.vx *= k; b.vz *= k; }
     else if (ml > 0.01) {
       const mx = b.moveX / Math.max(1, ml), mz = b.moveZ / Math.max(1, ml);
       const vmax = BALL.maxSpeed * (b.weapon === 'spikes' ? 1.15 : 1) * (b.boss ? BOSS.speed : 1);   // the Gun Game finale is a bit quicker
@@ -801,7 +964,7 @@ export class Game {
     } else {
       const k = Math.exp(-BALL.coast * dt); b.vx *= k; b.vz *= k;
     }
-    if (!dashing && sp > BALL.maxSpeed) { const k = Math.exp(-1.6 * dt); b.vx *= k; b.vz *= k; }
+    if (!dashing && !flung && sp > BALL.maxSpeed) { const k = Math.exp(-1.6 * dt); b.vx *= k; b.vz *= k; }
     b.x += b.vx * dt; b.z += b.vz * dt;
     const hit = this.arena.collide(b, b.rad, b.y);
     // follow the ground: roll up ramps, drop off ledges
@@ -816,6 +979,15 @@ export class Game {
       if (vn < 0) {
         b.vx -= (1 + BALL.wallBounce) * vn * hit.nx; b.vz -= (1 + BALL.wallBounce) * vn * hit.nz;
         if (vn < -5) { this.audio.play('bonk', b.x, b.z, Math.min(1, -vn / 14)); this.fx.puff(b.x - hit.nx * 0.5, 0.3, b.z - hit.nz * 0.5, 0.2, 0.4); }
+        // flung into a wall by a gravity gun: that hurts
+        if (b.flungT > 0 && -vn > GRAV.slamSpeed && b.local) {
+          const dmg = Math.min(GRAV.slamMax, 10 + (-vn - GRAV.slamSpeed) * GRAV.slamDmg);
+          b.flungT = 0;
+          this.fx.flash(b.x - hit.nx * 0.5, b.y + 0.5, b.z - hit.nz * 0.5, 0xffffff, 14, 0.15);
+          for (let i = 0; i < 8; i++) this.fx.puff(b.x - hit.nx * 0.5, 0.4 + b.y, b.z - hit.nz * 0.5, 0.25, 0.5, hit.nx * 3 + (Math.random() - 0.5) * 3, 1, hit.nz * 3 + (Math.random() - 0.5) * 3, 1);
+          this.r.addShake(b.isPlayer ? 0.5 : 0.15); this.audio.play('slam', b.x, b.z);
+          this.applyDamage(b, dmg, b.flungBy, 0, 0, 2);
+        }
       }
     }
   }
@@ -881,15 +1053,22 @@ export class Game {
             const travelled = s.dist + Math.sqrt(l2) * t;
             const range = w.speed * w.life;
             const dmg = w.damage * (1 - (w.falloff ?? 0) * Math.min(1, travelled / range));
-            this.hit(shooter, victim, dmg, (s.vx / l) * w.knock, (s.vz / l) * w.knock);
+            this.hit(shooter, victim, dmg, (s.vx / l) * w.knock, (s.vz / l) * w.knock, 0, w.kind === 'flame' ? 1 : 0);
           }
           for (let k = 0; k < 3; k++) this.fx.bit(hx, s.y, hz, s.vx * 0.12 + (Math.random() - 0.5) * 4, 2 + Math.random() * 3, s.vz * 0.12 + (Math.random() - 0.5) * 4, 0.06, victim.color, 0.6);
           if (Math.random() < 0.25 && victim.gy < 0.1) this.arena.splat(hx + s.vx * 0.02, hz + s.vz * 0.02, 0.18 + Math.random() * 0.15, victim.color);
+        } else if (w.kind === 'flame') {
+          if (Math.random() < 0.14) this.fires.push({ owner: s.owner, x: hx, z: hz, y: this.arena.floorAt(hx, hz), t: BURN.patchT * (0.7 + Math.random() * 0.6) });
         } else if (t >= 0) {
           for (let k = 0; k < 2; k++) this.fx.glow(hx, s.y, hz, -s.vx * 0.08 + (Math.random() - 0.5) * 5, 1 + Math.random() * 3, -s.vz * 0.08 + (Math.random() - 0.5) * 5, 0.05, 0xfff2a0, 0.18, 14);
           if (Math.random() < 0.3) this.audio.play('wall', hx, hz, 0.6);
         }
         this.shots.splice(i, 1); continue;
+      }
+      if (w.kind === 'flame') {
+        const age = 1 - s.life / w.life;
+        if (Math.random() < dt * 95) this.fx.glow(nx + (Math.random() - 0.5) * 0.2, s.y - 0.1 + age * 0.35, nz + (Math.random() - 0.5) * 0.2, s.vx * 0.3, 0.8 + age * 1.5, s.vz * 0.3, 0.22 + age * 0.5, age < 0.3 ? 0xfff0a0 : age < 0.65 ? 0xff9a30 : 0xe0481c, 0.16 + Math.random() * 0.08, 0);
+        if (age > 0.7 && Math.random() < dt * 8) this.fx.puff(nx, s.y + 0.2, nz, 0.14, 0.5, s.vx * 0.1, 1.2, s.vz * 0.1, 1.8);
       }
       s.dist += Math.sqrt(l2); s.x = nx; s.z = nz;
       { const fy = this.arena.floorAt(nx, nz) + 0.55; if (fy > s.y) s.y = fy; }
@@ -1112,11 +1291,12 @@ export class Game {
     if (!this.online || this.state === 'lobby' || this.state === 'menu') return;
     const b = (id: number) => this.babos[id];
     switch (e.k) {
-      case 'hit': { const v = b(e.v); if (v && v.local) this.applyDamage(v, e.d, e.a, e.x, e.z, e.y); break; }
+      case 'hit': { const v = b(e.v); if (v && v.local) this.applyDamage(v, e.d, e.a, e.x, e.z, e.y, e.f ?? 0); break; }
       case 'die': { const v = b(e.v); if (v && !v.local) this.onDeath(v, e.by); break; }
       case 'nade': if (b(e.o) && !b(e.o).local) this.addNade(e.o, e.x, e.y, e.z, e.vx, e.vy, e.vz, true); break;
       case 'boom': {
         if (b(e.o)?.local) break;
+        if (e.m) { this.removeMineNear(e.o, e.x, e.z); this.explode(e.x, e.z, e.o, e.r, 0, 0, false, e.y ?? 0); break; }
         let bi = -1, bd = 1e9;
         this.shots.forEach((s, i) => { if (s.owner === e.o && s.mesh) { const d = Math.hypot(s.x - e.x, s.z - e.z); if (d < bd) { bd = d; bi = i; } } });
         if (bi >= 0) { const s = this.shots[bi]; if (s.mesh) this.r.scene.remove(s.mesh); this.shots.splice(bi, 1); }
@@ -1133,7 +1313,7 @@ export class Game {
       if (!b.local) continue;
       ents.push([b.id, Math.round(b.x * 100), Math.round(b.z * 100), Math.round(b.vx * 10), Math.round(b.vz * 10), Math.round(b.y * 100),
         Math.round(Math.atan2(b.aimZ, b.aimX) * 100), Math.max(0, Math.round(b.hp)), b.alive ? 1 : 0, WIDS.indexOf(b.weapon),
-        b.fire && b.alive ? 1 : 0, b.reloadT > 0 || b.ammo <= 0 ? 1 : 0, AIDS.indexOf(b.ability), Math.round(Math.max(0, b.abT) * 100), b.abCount, b.spawnShield > 0 ? 1 : 0]);
+        b.fire && b.alive ? 1 : 0, b.reloadT > 0 || b.ammo <= 0 ? 1 : 0, AIDS.indexOf(b.ability), Math.round(Math.max(0, b.abT) * 100), b.abCount, b.spawnShield > 0 ? 1 : 0, b.burnT > 0 ? 1 : 0]);
     }
     return { t: Math.round(performance.now()), e: this.epoch, b: ents };
   }
@@ -1157,6 +1337,7 @@ export class Game {
       b.netFire = a[10] === 1; b.netReload = a[11] === 1;
       const ab = AIDS[a[12]]; if (ab) b.ability = ab;
       b.abT = a[13] / 100; b.spawnShield = a[15] ? 0.5 : 0;
+      if (a[16] && b.burnT < 0.3) { b.burnT = 0.3; if (b.burnBy < 0) b.burnBy = -2; }
       if (a[14] !== b.abCount) { const first = b.abCount === 0 && a[14] > 1; b.abCount = a[14]; if (!first) this.abilityFx(b); }
     }
   }
@@ -1265,6 +1446,7 @@ export class Game {
       const STEP = 1 / 120; let n = 0;
       while (this.acc >= STEP && n < 12) { this.step(STEP); this.acc -= STEP; n++; }
       if (n === 12) this.acc = 0;
+      this.flushGrav(raw);
       if (this.online) { this.netT -= raw; if (this.netT <= 0) { this.netT = 0.05; this.flushNet(); } }
     } else if (!inMatch) {
       this.clock += raw; this.menuCam();
@@ -1301,7 +1483,8 @@ export class Game {
     let n = 0;
     for (const sh of this.shots) {
       if (sh.mesh || n >= 400) continue;
-      const w = WEAPONS[sh.w]; const sp = Math.hypot(sh.vx, sh.vz);
+      const w = WEAPONS[sh.w];
+      if (w.kind === 'flame') continue; const sp = Math.hypot(sh.vx, sh.vz);
       const blob = w.kind === 'bounce';
       const len = blob ? 0.28 : Math.min(1.4, sp * 0.03);
       _q.setFromAxisAngle(_up, Math.atan2(sh.vx, sh.vz) + Math.PI);
@@ -1400,6 +1583,20 @@ function gunPickupMesh(w: WeaponId) {
   const item = new THREE.Group(); const gun = buildGun(w, def.color); gun.scale.setScalar(1.6); gun.position.z = -0.25; item.add(gun);
   item.traverse(o => { if ((o as THREE.Mesh).isMesh) o.castShadow = true; });
   item.position.y = 0.75; g.add(item); g.userData.item = item;
+  return g;
+}
+
+const mineBodyGeo = new THREE.CylinderGeometry(0.28, 0.32, 0.12, 16);
+const mineLightGeo = new THREE.SphereGeometry(0.07, 8, 6);
+const mineMat = new THREE.MeshStandardMaterial({ color: 0x3a3f55, roughness: 0.5, metalness: 0.3 });
+const mineLightMats = new Map<number, THREE.Material>();
+function mineMesh(color: number) {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(mineBodyGeo, mineMat); body.position.y = 0.06; body.castShadow = true; g.add(body);
+  let lm = mineLightMats.get(color);
+  if (!lm) { lm = new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(2.2), toneMapped: false }); mineLightMats.set(color, lm); }
+  const light = new THREE.Mesh(mineLightGeo, lm); light.position.y = 0.14; g.add(light); g.userData.light = light;
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.34, 0.4, 20).rotateX(-Math.PI / 2), lm); ring.position.y = 0.02; g.add(ring);
   return g;
 }
 

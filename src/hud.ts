@@ -428,7 +428,7 @@ export class Hud {
       this.lastAmmoKey = key;
       $('wpn-name').textContent = w.name;
       const pips = $('ammo');
-      if (w.kind === 'lob' || w.kind === 'melee') pips.innerHTML = `<span class="ammo-n">&infin;</span>`;
+      if (w.kind === 'lob' || w.kind === 'melee' || w.kind === 'grav') pips.innerHTML = `<span class="ammo-n">&infin;</span>`;
       else if (w.clip <= 8) pips.innerHTML = Array.from({ length: w.clip }, (_, i) => `<i class="${i < p.ammo ? 'on' : ''}"></i>`).join('');
       else pips.innerHTML = `<div class="ammo-bar"><b style="transform:scaleX(${p.ammo / w.clip})"></b></div><span class="ammo-n">${p.ammo}</span>`;
       if (p.reserve >= 0) pips.insertAdjacentHTML('beforeend', `<span class="ammo-res">+${p.reserve}</span>`);

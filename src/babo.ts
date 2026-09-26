@@ -79,6 +79,24 @@ function gunGeo(id: WeaponId, accent: number) {
       part(new THREE.CylinderGeometry(0.04, 0.04, 0.3, 8), GUNMETAL, 0, 0.03, 0.38, H),
       part(new THREE.BoxGeometry(0.1, 0.16, 0.1), GUNMETAL, 0, -0.12, 0.05),
     ])! };
+  } else if (id === 'flamethrower') {
+    const tank = new THREE.Color(0xd94a2a), brass = new THREE.Color(0xe0b04a);
+    out = { body: mergeGeometries([
+      part(new THREE.CylinderGeometry(0.11, 0.11, 0.36, 12), tank, 0, 0.12, -0.05),
+      part(new THREE.BoxGeometry(0.16, 0.14, 0.4), acc, 0, -0.03, 0.12),
+      part(new THREE.CylinderGeometry(0.045, 0.07, 0.5, 10), GUNMETAL, 0, 0, 0.5, H),
+      part(new THREE.TorusGeometry(0.07, 0.022, 6, 12), brass, 0, 0, 0.75),
+    ])! };
+  } else if (id === 'gravity') {
+    const orb = new THREE.Color(0x9fe6ff);
+    const prongs: THREE.BufferGeometry[] = [];
+    for (let i = 0; i < 3; i++) { const a = (i / 3) * Math.PI * 2 + 0.5; prongs.push(part(new THREE.BoxGeometry(0.04, 0.04, 0.34), GUNMETAL, Math.cos(a) * 0.12, Math.sin(a) * 0.12, 0.55)); }
+    out = { body: mergeGeometries([
+      part(new THREE.BoxGeometry(0.24, 0.2, 0.42), acc, 0, 0, 0.05),
+      part(new THREE.CylinderGeometry(0.16, 0.12, 0.14, 12), GUNMETAL, 0, 0, 0.32, H),
+      part(new THREE.SphereGeometry(0.075, 10, 8), orb, 0, 0, 0.48),
+      ...prongs,
+    ])! };
   } else if (id === 'grenade') {
     out = { body: mergeGeometries([
       part(new THREE.SphereGeometry(0.17, 12, 8), new THREE.Color(0x3b8f4a), 0, 0.05, 0.2),
@@ -163,6 +181,9 @@ export interface Babo {
   tier: number; tierKills: number; won: boolean;   // Gun Game
   gy: number;          // ground height under the ball
   aimDist: number;
+  burnT: number; burnBy: number;     // on fire (flamethrower)
+  flungT: number; flungBy: number;   // just flung by a gravity gun: wall slams hurt
+  gravT: number;                     // how long the gravity gun has been held
   reserve: number;     // spare rounds for power weapons; -1 = unlimited reloads
   rad: number;         // collision radius (the wave boss is bigger)
   maxHp: number;
@@ -204,7 +225,7 @@ export function makeBabo(id: number, name: string, color: number, weapon: Weapon
     weapon, ammo: WEAPONS[weapon].clip, reloadT: 0, cool: 0, nades: GRENADE.start, nadeCool: 0,
     ability, abCool: 0, abT: 0, abCount: 0, spikeHits: new Set(),
     aimX: 1, aimZ: 0, moveX: 0, moveZ: 0, fire: false, wantAbility: false,
-    kills: 0, deaths: 0, tier: 0, tierKills: 0, won: false, gy: 0, aimDist: 6, reserve: -1, rad: BALL.radius, maxHp: BALL.hp, boss: false, semiLock: false, spikeCd: new Map(), streak: 0, lastHitBy: -1, lastHitT: 0, hurtT: 0, spawnShield: 0,
+    kills: 0, deaths: 0, tier: 0, tierKills: 0, won: false, gy: 0, aimDist: 6, burnT: 0, burnBy: -1, flungT: 0, flungBy: -1, gravT: 0, reserve: -1, rad: BALL.radius, maxHp: BALL.hp, boss: false, semiLock: false, spikeCd: new Map(), streak: 0, lastHitBy: -1, lastHitT: 0, hurtT: 0, spawnShield: 0,
     root, ball, gun, ring, mat, spikes: sp, bubble, recoilZ: 0,
     net: [], netFire: false, netReload: false,
   };

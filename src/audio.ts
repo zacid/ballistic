@@ -72,6 +72,11 @@ export class Audio {
       case 'pistol': this.noise('bandpass', 2400, 900, 0.07, 0.6 * v, 1.2); this.tone('square', 520, 160, 0.06, 0.18 * v); break;
       case 'grenade': this.noise('bandpass', 600, 1800, 0.14, 0.25 * v, 1.2); break;
       case 'levelup': [523, 784, 1046, 1568].forEach((f, i) => this.tone('square', f, f * 1.01, 0.12, 0.14, i * 0.06)); this.tone('sine', 260, 1040, 0.35, 0.18); break;
+      case 'flamethrower': this.noise('lowpass', 1400, 500, 0.12, 0.28 * v, 0.7); this.noise('bandpass', 300, 200, 0.1, 0.2 * v, 0.6); break;
+      case 'gravity': this.tone('sine', 90, 260, 0.5, 0.35 * v); this.tone('triangle', 180, 520, 0.5, 0.12 * v); break;
+      case 'fling': this.tone('sine', 520, 70, 0.3, 0.5 * v); this.noise('bandpass', 800, 3000, 0.22, 0.45 * v, 1.2); break;
+      case 'slam': this.tone('sine', 140, 40, 0.3, 0.9 * v); this.noise('lowpass', 1600, 120, 0.3, 0.8 * v); break;
+      case 'mine': this.tone('square', 900, 900, 0.05, 0.12 * v); this.tone('square', 1350, 1350, 0.05, 0.1 * v, 0.08); this.noise('bandpass', 1500, 900, 0.05, 0.25 * v, 3); break;
       case 'boss': this.tone('sawtooth', 70, 45, 0.9, 0.35); this.tone('square', 140, 90, 0.9, 0.12); this.noise('lowpass', 900, 100, 0.9, 0.5); [220, 208, 196].forEach((f, i) => this.tone('square', f, f * 0.97, 0.22, 0.1, 0.25 + i * 0.22)); break;
       case 'demote': [494, 392, 311].forEach((f, i) => this.tone('sawtooth', f, f * 0.9, 0.16, 0.12, i * 0.1)); break;
       case 'boom':

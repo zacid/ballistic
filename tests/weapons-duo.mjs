@@ -1,0 +1,60 @@
+// Online: gravity-gun pull and fling, flamethrower burn and mines between two browsers.
+import { chromium } from 'playwright-core';
+const b = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', args: ['--no-proxy-server','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader','--disable-features=WebRtcHideLocalIpsWithMdns'] });
+const errs = [];
+const mk = async (name, url) => {
+  const ctx = await b.newContext({ viewport: { width: 640, height: 400 } });
+  await ctx.addInitScript(() => { window.__RELAY = 'ws://127.0.0.1:8787'; window.__PEER_OPTS = { host: '127.0.0.1', port: 9000, path: '/', secure: false }; });
+  await ctx.route(/fonts\.(googleapis|gstatic)\.com/, r => r.abort());
+  const p = await ctx.newPage();
+  p.on('pageerror', e => errs.push(name + ' PAGEERR ' + e.message));
+  p.on('console', m => { if (m.type() === 'error' && !m.text().includes('ERR_')) errs.push(name + ' ' + m.text()); });
+  await p.goto(url, { waitUntil: 'domcontentloaded' }); await p.waitForTimeout(1500);
+  await p.evaluate(() => { const g = window.__game; g.r.setQuality('low'); g.r.flags.shadows = false; g.r.flags.res = 0.5; g.r.applyFlags(); });
+  return p;
+};
+const A = await mk('A', 'http://127.0.0.1:8766/');
+await A.click('#play-online'); await A.fill('#nick', 'Zac'); await A.click('#invite-btn');
+await A.waitForFunction(() => !document.getElementById('invite-row').hidden, null, { timeout: 15000 });
+const B = await mk('B', await A.inputValue('#invite-link'));
+await A.waitForFunction(() => window.__game.net.others().length > 0, null, { timeout: 40000 });
+await A.waitForTimeout(600);
+
+await A.click('#lobby-duel');
+await B.waitForFunction(() => window.__game.state === 'playing', null, { timeout: 30000 });
+const st = p => p.evaluate(() => { const g = window.__game; return `${g.state} mode=${g.mode.id} map=${g.map} e=${g.epoch} ` + g.babos.map(b => `${b.name}${b.local ? 'L' : 'R'}:L${b.tier + 1}.${b.tierKills}${b.won ? '*' : ''}/${b.weapon}`).join(' '); });
+console.log('start A:', await st(A)); console.log('start B:', await st(B));
+// park both in the open, A on the left facing B
+const place = async () => {
+  const s = await A.evaluate(() => { const g = window.__game, A = g.arena; const s = A.spawns.find(s => A.raycast(s.x, s.z, s.x + 8, s.z, 0.55) < 0 && A.raycast(s.x, s.z, s.x - 2, s.z, 0.55) < 0 && A.floorAt(s.x, s.z) === 0); return s; });
+  await A.evaluate((s) => { const g = window.__game, me = g.player; me.x = s.x; me.z = s.z; me.vx = me.vz = 0; me.spawnShield = 0; g.input.apply = (b) => { b.moveX = b.moveZ = 0; b.aimX = 1; b.aimZ = 0; b.fire = !!window.__fire; }; }, s);
+  await B.evaluate((s) => { const g = window.__game, me = g.player; me.x = s.x + 5; me.z = s.z; me.vx = me.vz = 0; me.hp = 100; me.spawnShield = 0; g.input.apply = (b) => { b.moveX = b.moveZ = 0; b.fire = false; }; }, s);
+  await A.waitForTimeout(700);
+  return s;
+};
+const give = (P, w) => P.evaluate((w) => { const g = window.__game, me = g.player, pk = g.pickups.find(p => p.w === w); const ox = me.x, oz = me.z; me.x = pk.x; me.z = pk.z; me.y = me.gy = g.arena.floorAt(pk.x, pk.z); g.step(1 / 120); me.x = ox; me.z = oz; me.y = me.gy = 0; return me.weapon; }, w);
+let s = await place();
+console.log('A has', await give(A, 'gravity'));
+const bx0 = await B.evaluate(() => window.__game.player.x);
+await A.evaluate(() => { window.__fire = true; }); await A.waitForTimeout(1500);
+const bx1 = await B.evaluate(() => window.__game.player.x);
+await A.evaluate(() => { window.__fire = false; }); await A.waitForTimeout(600);
+const b2 = await B.evaluate(() => { const p = window.__game.player; return { x: p.x.toFixed(1), hp: Math.round(p.hp), flung: p.flungT.toFixed(2) }; });
+console.log(`gravity: B pulled from x ${bx0.toFixed(1)} to ${bx1.toFixed(1)} (A at ${s.x.toFixed(1)}), after fling`, JSON.stringify(b2));
+s = await place();
+console.log('A has', await give(A, 'flamethrower'));
+await A.evaluate(() => { window.__fire = true; }); await A.waitForTimeout(700); await A.evaluate(() => { window.__fire = false; });
+const f1 = await B.evaluate(() => { const p = window.__game.player; return { hp: Math.round(p.hp), burning: p.burnT > 0 }; });
+await A.waitForTimeout(2500);
+const f2 = await B.evaluate(() => Math.round(window.__game.player.hp));
+console.log('flamethrower: B right after', JSON.stringify(f1), 'after burning out', f2, '| A sees B burning:', await A.evaluate(() => window.__game.babos[1].burnT >= 0));
+s = await place();
+await A.evaluate(() => { const g = window.__game, me = g.player; me.ability = 'mine'; me.abCool = 0; me.x += 3; g.useAbility(me); me.x -= 3; });
+await A.waitForTimeout(1200);
+console.log('mines A/B:', await A.evaluate(() => window.__game.mines.length), await B.evaluate(() => window.__game.mines.length));
+await A.waitForTimeout(1200);
+await B.evaluate((s) => { const me = window.__game.player; me.hp = 100; me.x = s.x + 3.2; me.vx = -1; }, s);
+await A.waitForTimeout(1500);
+console.log('mine: B hp', await B.evaluate(() => Math.round(window.__game.player.hp)), 'alive', await B.evaluate(() => window.__game.player.alive), '| mines left A/B', await A.evaluate(() => window.__game.mines.length), await B.evaluate(() => window.__game.mines.length));
+console.log('errors:', errs.length ? errs.slice(0, 8) : 'none');
+await b.close();

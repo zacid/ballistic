@@ -153,6 +153,8 @@ export function thinkBot(g: Game, b: Babo, dt: number, diff: { react: number; ai
   b.aimDist = tAlive ? dist : 8;
   const aimed = Math.abs(da) < (w.pellets > 1 ? 0.35 : 0.2);
   b.fire = !!(tAlive && visible && br.seen > diff.react && aimed && dist < range && !(w.kind === 'rocket' && dist < 2.6) && !(w.kind === 'lob' && dist < 3.2) && w.kind !== 'melee' && t.spawnShield <= 0);
+  // gravity gun: reel them in, let go once they're close (or it's been a while)
+  if (w.kind === 'grav') b.fire = !!(tAlive && visible && br.seen > diff.react && dist < 8.5 && Math.abs(da) < 0.4 && !(b.gravT > 0.45 && dist < 2.6) && b.gravT < 1.8);
   if (b.fire && w.kind === 'rocket') {
     // don't blast a wall right next to us
     if (g.arena.raycast(b.x, b.z, b.x + b.aimX * 2.2, b.z + b.aimZ * 2.2, b.y + 0.55, false, CLIMB) >= 0) b.fire = false;
@@ -177,6 +179,7 @@ export function thinkBot(g: Game, b: Babo, dt: number, diff: { react: number; ai
       case 'spikes': b.wantAbility = visible && dist < 2.4; if (b.wantAbility) { b.moveX = (t.x - b.x) / dist; b.moveZ = (t.z - b.z) / dist; } break;
       case 'bubble': b.wantAbility = recentlyHit && b.hp < 75; break;
       case 'shockwave': b.wantAbility = visible && dist < 3.4; break;
+      case 'mine': b.wantAbility = (visible && dist > 2.5 && dist < 7 && Math.random() < 0.3) || (recentlyHit && b.hp < 50); break;
     }
   }
   // keep ramming while the spikes are out

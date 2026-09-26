@@ -4,12 +4,15 @@ Rolling toy balls with guns. A top-down arena shooter in the spirit of Babo Viol
 
 - **Solo:** free-for-all against 7 bots (first to 20 pops), Gun Game, or Hold the Fort.
 - **With a friend:** 1v1 (first to 10), the two of you against 5 bots (first team to 30), Gun Game 1v1, or Hold the Fort together, joined with an invite link. Rematch goes straight back in without the lobby.
-- Six guns and grenades. Everyone starts with a pistol; the shotgun, chaingun and bouncer lie around the arena, and the rockets and railgun are power weapons with limited ammo in the most contested spots. Roll over a gun to swap to it; guns are dropped when their owner pops. Plus a Spacebar ability (dash, spikes, bubble, shockwave).
+- Eight guns and grenades. Everyone starts with a pistol; the shotgun, chaingun, bouncer, flamethrower and gravity gun lie around the arena, and the rockets and railgun are power weapons with limited ammo in the most contested spots. Roll over a gun to swap to it; guns are dropped when their owner pops. Plus a Spacebar ability (dash, spikes, bubble, shockwave, mine).
+- **Flamethrower:** short range, sets balls alight (afterburn) and leaves fire on the floor for a moment.
+- **Gravity gun:** hold to drag balls towards you, let go to fling them. Flung balls can't steer for a moment, and slamming into a wall hurts (credited to you).
+- **Mine (ability):** Space drops a proximity mine behind you; three at a time, arms after a second.
 - **Arenas:** a fresh random arena each match, or two hand-made ones with raised floors: **Fort** (a keep with ramps and battlements, the default for 2 vs bots) and **Towers** (two raised corner towers).
 
 ### Gun Game
 
-Every pop moves you one weapon up the ladder: rockets, railgun, chaingun, bouncer, shotgun, pistol, unlimited grenades, then spikes. Pop someone with spikes to win. One pop per level against bots, two in the 1v1. Getting spiked (or popping yourself) drops you a level. The spikes ability and grenade pickups are off in this mode.
+Every pop moves you one weapon up the ladder: rockets, railgun, chaingun, flamethrower, bouncer, shotgun, gravity gun, pistol, unlimited grenades, then spikes. Pop someone with spikes to win. One pop per level against bots, two in the 1v1. Getting spiked (or popping yourself) drops you a level. The spikes ability and grenade pickups are off in this mode.
 
 ### Hold the Fort
 
@@ -132,7 +135,7 @@ The relay uses one SQLite-backed Durable Object per room with the WebSocket Hibe
 
 ## Tests
 
-`tests/solo.mjs` fast-forwards bot-only matches (Gun Game on Fort and Towers, free-for-all) and checks for errors. `tests/waves.mjs` and `tests/waves-duo.mjs` cover Hold the Fort solo and online; `tests/guns.mjs` checks gun pickups, power-weapon ammo and the lingering railgun beam; `tests/director.mjs` checks the difficulty climbs for a strong player and falls for a weak one. `tests/gg.mjs` plays online Gun Game 1v1 through the local servers, checks the ladder syncs, and tests the rematch.
+`tests/solo.mjs` fast-forwards bot-only matches (Gun Game on Fort and Towers, free-for-all) and checks for errors. `tests/waves.mjs` and `tests/waves-duo.mjs` cover Hold the Fort solo and online; `tests/newguns.mjs` and `tests/weapons-duo.mjs` cover the flamethrower, gravity gun and mines offline and online; `tests/guns.mjs` checks gun pickups, power-weapon ammo and the lingering railgun beam; `tests/director.mjs` checks the difficulty climbs for a strong player and falls for a weak one. `tests/gg.mjs` plays online Gun Game 1v1 through the local servers, checks the ladder syncs, and tests the rematch.
 
 `tests/p2p.mjs` runs two headless browsers against a local PeerJS server, creates an invite, joins it, plays a duel and checks that kills and disconnects sync:
 

@@ -57,8 +57,8 @@ export class Director {
   spawnGap() { return clamp(1 - 0.25 * this.skill, 0.5, 1.5) * (this.hurtT > 0 ? 2.5 : 1); }
   guns(n: number): WeaponId[] {
     const e = n + Math.round(this.skill * 2);   // strong defenders see the heavy guns sooner
-    return e <= 2 ? ['pistol', 'shotgun', 'chaingun'] : e <= 4 ? ['pistol', 'shotgun', 'chaingun', 'bouncer']
-      : e <= 6 ? ['shotgun', 'chaingun', 'bouncer', 'rocket'] : ['shotgun', 'chaingun', 'bouncer', 'rocket', 'railgun'];
+    return e <= 2 ? ['pistol', 'shotgun', 'chaingun'] : e <= 4 ? ['pistol', 'shotgun', 'chaingun', 'bouncer', 'flamethrower']
+      : e <= 6 ? ['shotgun', 'chaingun', 'bouncer', 'rocket', 'flamethrower', 'gravity'] : ['shotgun', 'chaingun', 'bouncer', 'rocket', 'railgun', 'flamethrower', 'gravity'];
   }
   /** Bot bullets hit softer while the defenders are finding their feet. */
   botDamage(n: number) { return lerp(0.55, 1.05, clamp(this.t(n) * 1.4, 0, 1)); }

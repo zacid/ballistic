@@ -19,7 +19,7 @@ export class Fx {
   private rings: { m: THREE.Mesh; life: number; max: number; size: number }[] = [];
   private beams: { m: THREE.Mesh; life: number; max: number }[] = [];
   floorAt: (x: number, z: number) => number = () => 0;
-  private MAXB = 900; private MAXP = 260; private MAXG = 400;
+  private MAXB = 900; private MAXP = 260; private MAXG = 650;
 
   constructor(scene: THREE.Scene) {
     scene.add(this.group);

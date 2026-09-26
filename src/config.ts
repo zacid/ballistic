@@ -1,13 +1,13 @@
 // Tunables for the whole game. Units: metres, seconds.
 
-export type WeaponId = 'shotgun' | 'chaingun' | 'rocket' | 'railgun' | 'bouncer' | 'pistol' | 'grenade' | 'spikes';
+export type WeaponId = 'shotgun' | 'chaingun' | 'rocket' | 'railgun' | 'bouncer' | 'flamethrower' | 'gravity' | 'pistol' | 'grenade' | 'spikes';
 
 export interface WeaponDef {
   id: WeaponId;
   name: string;
   blurb: string;
   icon: string;
-  kind: 'bullet' | 'rocket' | 'rail' | 'bounce' | 'lob' | 'melee';
+  kind: 'bullet' | 'rocket' | 'rail' | 'bounce' | 'flame' | 'grav' | 'lob' | 'melee';
   hidden?: boolean;    // Gun Game only, not in the loadout picker
   semi?: boolean;      // one shot per click for players
   bounces?: number;    // wall bounces before a projectile dies
@@ -65,6 +65,18 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     damage: 18, knock: 2.2, recoil: 0.6, color: 0x5cffb0, preferred: 6,
     stats: { power: 0.55, range: 0.6, rate: 0.5 },
   },
+  flamethrower: {
+    id: 'flamethrower', name: 'Flamethrower', blurb: 'Short range. Sets balls alight, and the floor burns for a moment.', icon: 'FT',
+    kind: 'flame', rate: 18, clip: 90, reload: 2, pellets: 1, spread: 0.32, speed: 11, life: 0.45,
+    damage: 5, knock: 0.15, recoil: 0, color: 0xff7a2a, preferred: 3.2,
+    stats: { power: 0.8, range: 0.25, rate: 1 },
+  },
+  gravity: {
+    id: 'gravity', name: 'Gravity Gun', blurb: 'Hold to drag balls in, let go to fling them. Walls hurt.', icon: 'GG',
+    kind: 'grav', rate: 1.4, clip: 1, reload: 0.1, pellets: 1, spread: 0, speed: 0, life: 0, range: 9,
+    damage: 8, knock: 25, recoil: 2, color: 0x6ad0ff, preferred: 5,
+    stats: { power: 0.7, range: 0.45, rate: 0.35 },
+  },
   pistol: {
     id: 'pistol', name: 'Pistol', blurb: 'What everyone starts with. Accurate, one shot per click.', icon: 'PS',
     kind: 'bullet', rate: 5, clip: 12, reload: 1.2, pellets: 1, spread: 0.025, speed: 60, life: 0.42, semi: true,
@@ -87,12 +99,15 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
 /** Everyone spawns with this; the rest are picked up around the arena. */
 export const START_WEAPON: WeaponId = 'pistol';
 /** Guns that lie around the map, most contested spots first. */
-export const MAP_GUNS: WeaponId[] = ['rocket', 'railgun', 'shotgun', 'chaingun', 'bouncer', 'shotgun', 'chaingun', 'bouncer'];
+export const MAP_GUNS: WeaponId[] = ['rocket', 'railgun', 'flamethrower', 'shotgun', 'gravity', 'chaingun', 'bouncer', 'shotgun'];
+/** Flamethrower afterburn and the gravity gun's pull / wall-slam numbers. */
+export const BURN = { t: 2.2, dps: 12, patchT: 1.6, patchR: 0.75 };
+export const GRAV = { pull: 62, hold: 1.7, maxHold: 2.5, flingR: 3.2, slamSpeed: 6, slamDmg: 4, slamMax: 50 };
 export const GUN_RESPAWN = { normal: 12, power: 22, dropLife: 12, maxDrops: 10 };
 /** Guns you can pick in the loadout (Gun Game adds the hidden ones). */
 export const PICKABLE = (Object.keys(WEAPONS) as WeaponId[]).filter(w => !WEAPONS[w].hidden);
 /** Gun Game ladder: strongest first, the spikes finale is the "knife". */
-export const LADDER: WeaponId[] = ['rocket', 'railgun', 'chaingun', 'bouncer', 'shotgun', 'pistol', 'grenade', 'spikes'];
+export const LADDER: WeaponId[] = ['rocket', 'railgun', 'chaingun', 'flamethrower', 'bouncer', 'shotgun', 'gravity', 'pistol', 'grenade', 'spikes'];
 
 export const GRENADE = { fuse: 1.5, radius: 3.4, damage: 75, knock: 18, maxThrow: 12, start: 2, max: 4, cooldown: 0.6 };
 
@@ -132,15 +147,17 @@ export const WAVES = {
 export const BOSS = { hp: 450, every: 5, speed: 0.8, knock: 0.3 };
 export const MATCH = { fragLimit: 20, timeLimit: 240, bots: 7 };
 
-export type AbilityId = 'dash' | 'spikes' | 'bubble' | 'shockwave';
+export type AbilityId = 'dash' | 'spikes' | 'bubble' | 'shockwave' | 'mine';
 export interface AbilityDef { id: AbilityId; name: string; blurb: string; cooldown: number; dur: number }
 export const ABILITIES: Record<AbilityId, AbilityDef> = {
   dash: { id: 'dash', name: 'Dash', blurb: 'Burst forward at triple speed. Ignores knockback while dashing.', cooldown: 3.5, dur: 0.28 },
   spikes: { id: 'spikes', name: 'Spikes', blurb: 'Spikes for 1.6s. Ram a ball for 45 damage and a big shove.', cooldown: 8, dur: 1.6 },
   bubble: { id: 'bubble', name: 'Bubble', blurb: 'A shield that soaks 70% of damage and knockback for 2s.', cooldown: 10, dur: 2 },
+  mine: { id: 'mine', name: 'Mine', blurb: 'Drop a proximity mine (3 at a time). Arms after a second.', cooldown: 5, dur: 0 },
   shockwave: { id: 'shockwave', name: 'Shockwave', blurb: 'Blast everyone within 4m away for 20 damage.', cooldown: 7, dur: 0.3 },
 };
 export const SPIKES = { damage: 45, knock: 13 };
+export const MINE = { max: 3, arm: 1, trigger: 1.3, radius: 2.7, damage: 65, knock: 15, life: 45 };
 export const WAVE = { radius: 4, damage: 20, knock: 17 };
 export const DASH = { speed: 19 };
 
