@@ -45,7 +45,8 @@ export function thinkBot(g: Game, b: Babo, dt: number, diff: { react: number; ai
       const vis = g.arena.raycast(b.x, b.z, o.x, o.z, b.y + 0.55, true, CLIMB) < 0;
       if (!vis && d > (g.mode.waves ? 80 : 9)) continue;
       const lead = g.mode.waves && o.id === g.waveLeader ? 2.5 : 0;
-      let s = d - lead + (vis ? 0 : 8) - (o.id === br.target ? 3 : 0) - (o.hp < 40 ? 2.5 : 0) - (o.id === b.lastHitBy ? 3 : 0) + (o.spawnShield > 0 ? 6 : 0);
+      const bias = o === g.player ? g.ffa.targetBias() : 0;   // adaptive: go easier on (or harder after) the player
+      let s = d - lead + bias + (vis ? 0 : 8) - (o.id === br.target ? 3 : 0) - (o.hp < 40 ? 2.5 : 0) - (o.id === b.lastHitBy ? 3 : 0) + (o.spawnShield > 0 ? 6 : 0);
       if (s < bestScore) { bestScore = s; best = o.id; }
     }
     if (best !== br.target) br.seen = 0;
@@ -53,6 +54,7 @@ export function thinkBot(g: Game, b: Babo, dt: number, diff: { react: number; ai
   }
   const t = br.target >= 0 ? g.babos[br.target] : null;
   const tAlive = t && t.alive;
+  if (t && t === g.player) diff = g.ffa.aim(diff);   // adaptive only changes how bots treat the player
   let visible = false, dist = 99;
   if (tAlive) {
     dist = Math.hypot(t.x - b.x, t.z - b.z);

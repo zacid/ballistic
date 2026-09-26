@@ -13,7 +13,7 @@ import { Renderer, Quality } from './render';
 import { Hud } from './hud';
 import { Input } from './input';
 import { thinkBot } from './bots';
-import { Director } from './director';
+import { Director, FfaDirector } from './director';
 import { Stats } from './stats';
 import { Net, NetEvent, RosterEntry, StartOffer, HostState } from './net';
 import { PeerRoom, newCode } from './peerroom';
@@ -42,7 +42,7 @@ const STORE = 'ballistic.v1';
 export interface Saved {
   weapon: WeaponId; ability: AbilityId; color: number; difficulty: Difficulty; quality: Quality | 'auto';
   muted: boolean; best?: number; perf?: boolean; nick: string;
-  soloMode: 'solo' | 'gungame' | 'waves'; map: MapChoice; arenaSize: ArenaSize; botCount: number; coopBots: number; bestWave?: number; music?: boolean; v2?: boolean;
+  soloMode: 'solo' | 'gungame' | 'waves'; map: MapChoice; arenaSize: ArenaSize; botCount: number; coopBots: number; ffaSkill?: number; bestWave?: number; music?: boolean; v2?: boolean;
 }
 function load(): Saved {
   let s: Partial<Saved> = {};
@@ -93,6 +93,7 @@ export class Game {
   /** Hold the Fort state (the host runs it; guests mirror it from the host state). */
   wv = { n: 0, lives: 0, breakT: 0, queue: 0, total: 0, spawnT: 0, boss: -1, out: new Set<number>(), cleared: false };
   director = new Director();
+  ffa = new FfaDirector();
   private offer: StartOffer | null = null;
   private netT = 0;
   private peerOffset = new Map<string, number>();
@@ -231,6 +232,8 @@ export class Game {
     const humans = this.babos.filter(b => b.human).length;
     this.wv = { n: 0, lives: humans > 1 ? WAVES.livesDuo : WAVES.lives, breakT: WAVES.firstBreak, queue: 0, total: 0, spawnT: 0, boss: -1, out: new Set(), cleared: false };
     this.director.reset(this.saved.difficulty);
+    // solo matches against bots (not Hold the Fort, which has its own director): size bots to you
+    this.ffa.start(!this.online && !mode.waves && !mode.teams && this.saved.difficulty === 'adaptive', this.saved.ffaSkill);
     for (const b of this.babos) {
       this.r.scene.add(b.root);
       // Hold the Fort: the bots wait off-stage until their wave
@@ -682,6 +685,8 @@ export class Game {
   hit(att: Babo, v: Babo, dmg: number, kx: number, kz: number, vy = 0, flag = 0) {
     if (!att.local || !v.alive || !this.canDamage(att, v)) return;
     if (this.mode.waves && !att.human && v.human) dmg *= this.director.botDamage(this.wv.n);
+    if (this.ffa.active && v === this.player && !att.human) { dmg *= this.ffa.damage(); if (v.spawnShield <= 0) this.ffa.tookDamage(dmg); }
+    if (this.ffa.active && att === this.player && v !== att && v.spawnShield <= 0) this.ffa.dealtDamage(dmg);
     if (flag & 1) { v.burnT = BURN.t; v.burnBy = att.id; }
     if (flag & 2) { v.flungT = 1; v.flungBy = att.id; }
     if (att.isPlayer && v !== att && v.spawnShield <= 0 && dmg >= 1) { this.hud.floater(v.x, v.z, Math.round(dmg * (v.abT > 0 && v.ability === 'bubble' ? 0.3 : 1))); this.audio.play('hit', undefined, undefined, 0.8); }
@@ -728,6 +733,11 @@ export class Game {
       this.hud.banner(msgs[Math.min(5, k.streak)] ?? `POPPED ${v.name.toUpperCase()}`, !msgs[Math.min(5, k.streak)]);
     }
     if (this.mode.waves) this.waveDeath(v);
+    if (this.ffa.active) {
+      if (v === this.player) this.ffa.died();
+      else if (k === this.player) this.ffa.popped(k.streak);
+      this.saved.ffaSkill = Math.round(this.ffa.skill * 100) / 100; this.save();
+    }
     // drop the gun: anyone can grab it for a few seconds (runs on every client, so no message needed)
     if (!this.mode.gun && v.weapon !== START_WEAPON && WEAPONS[v.weapon].kind !== 'melee' && (this.state === 'playing')) {
       const drops = this.pickups.filter(p => p.drop);
@@ -875,6 +885,7 @@ export class Game {
       if (this.countT <= 0 && (this.host || this.countT < -1.5)) this.go();
     }
     if (this.mode.waves) { if (live) this.matchT += dt; if (live && this.host) this.stepWaves(dt); }
+    if (live) this.ffa.step(dt);
     else if (live && this.host) { this.matchT -= dt; if (this.matchT <= 0) { this.matchT = 0; this.end(); } }
     else if (live) this.matchT = Math.max(0, this.matchT - dt);
 

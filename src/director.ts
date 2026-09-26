@@ -105,3 +105,51 @@ export class Director {
   /** 1..5 for the threat meter. */
   threat(n: number) { return clamp(Math.round(this.t(n) * 4) + 1, 1, 5); }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Free-for-all / solo Gun Game: no waves to judge, so it adjusts continuously, and only changes how
+// bots treat *you*. Bot-against-bot fights keep the normal settings, so the match still plays naturally.
+//
+// Every pop you land nudges the rating up a little; every time you're popped nudges it down more (ease
+// off fast, ramp up slowly). Every 15 s the damage you dealt vs took over that stretch nudges it too.
+// The rating sets how quickly and accurately bots shoot at you, how hard their hits land, and how keen
+// they are to pick you as a target. It's saved, so the next match starts where the last one ended.
+
+export class FfaDirector {
+  skill = 0;
+  active = false;
+  private dealt = 0; private taken = 0; private windowT = 0;
+  trend = 0;
+
+  start(active: boolean, saved: number | undefined) {
+    this.active = active; this.skill = clamp(saved ?? -0.2, -1, 1.3);
+    this.dealt = this.taken = this.windowT = 0; this.trend = 0;
+  }
+  private nudge(d: number) { const b = this.skill; this.skill = clamp(this.skill + d, -1, 1.3); this.trend = Math.sign(this.skill - b); }
+
+  popped(streak: number) { if (this.active) this.nudge(0.05 + (streak >= 3 ? 0.03 : 0)); }
+  died() { if (this.active) this.nudge(-0.11); }
+  dealtDamage(d: number) { this.dealt += d; }
+  tookDamage(d: number) { this.taken += d; }
+  step(dt: number) {
+    if (!this.active) return;
+    this.windowT += dt;
+    if (this.windowT < 15) return;
+    const r = (this.dealt + 20) / (this.taken + 20);   // the +20 keeps quiet stretches from swinging it
+    this.nudge(clamp((r - 1) * 0.06, -0.08, 0.05));
+    this.dealt = this.taken = this.windowT = 0;
+  }
+
+  private get t() { return clamp((this.skill + 1) / 2.3, 0, 1); }
+  /** Bot skill when shooting at you (Easy-ish at the bottom, a bit past Hard at the top). */
+  aim(base: { react: number; aimErr: number; lead: number; nade: number }) {
+    if (!this.active) return base;
+    const t = this.t;
+    return { react: lerp(0.62, 0.15, t), aimErr: lerp(0.26, 0.05, t), lead: lerp(0.25, 1, t), nade: lerp(0.15, 1, t) };
+  }
+  /** How hard bot hits on you land. */
+  damage() { return this.active ? lerp(0.6, 1.1, this.t) : 1; }
+  /** Added to a bot's target score for you (lower = more likely to be picked). */
+  targetBias() { return this.active ? lerp(3.5, -3, this.t) : 0; }
+  threat() { return clamp(Math.round(this.t * 4) + 1, 1, 5); }
+}

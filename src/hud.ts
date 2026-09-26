@@ -383,6 +383,13 @@ export class Hud {
       `<tr class="${b.isPlayer ? 'me' : ''}"><td>${i + 1}</td><td><i style="background:${hex(b.color)}"></i>${esc(this.g.nameOf(b))}</td><td>${this.g.mode.gun ? lvl(b) + ' ' : ''}${WEAPONS[b.weapon].name}</td><td>${b.kills}</td><td>${b.deaths}</td></tr>`).join('');
   }
 
+  /** Threat bars for adaptive solo matches (same look as Hold the Fort's). */
+  private ffaMeter() {
+    const f = this.g.ffa; if (!f.active) return '';
+    const th = f.threat();
+    return `<span class="threat t${th}" title="How hard the bots go at you, sized to how you're playing">${'<b></b>'.repeat(th)}${'<i></i>'.repeat(5 - th)}</span>`;
+  }
+
   private ranked() {
     const g = this.g;
     return g.mode?.gun
@@ -537,8 +544,8 @@ export class Hud {
       } else if (g.mode.gun) {
         const per = g.mode.perTier ?? 1, last = p.tier >= LADDER.length - 1;
         const need = last ? 'spikes to win!' : per > 1 ? `${per - p.tierKills} to next` : '';
-        $('race').innerHTML = `<b>L${Math.min(p.tier + 1, LADDER.length)}</b><span>/ ${LADDER.length} &middot; ${WEAPONS[LADDER[Math.min(p.tier, LADDER.length - 1)]].name}${need ? ' &middot; ' + need : ''}</span><em>${ordinal(place)}</em>`;
-      } else $('race').innerHTML = `<b>${p.kills}</b><span>/ ${g.mode.limit}</span><em>${ordinal(place)}</em>`;
+        $('race').innerHTML = this.ffaMeter() + `<b>L${Math.min(p.tier + 1, LADDER.length)}</b><span>/ ${LADDER.length} &middot; ${WEAPONS[LADDER[Math.min(p.tier, LADDER.length - 1)]].name}${need ? ' &middot; ' + need : ''}</span><em>${ordinal(place)}</em>`;
+      } else $('race').innerHTML = this.ffaMeter() + `<b>${p.kills}</b><span>/ ${g.mode.limit}</span><em>${ordinal(place)}</em>`;
       const top = ranked.slice(0, 4); if (!top.includes(p)) top[3] = p;
       $('mini').innerHTML = top.map(b => `<div class="${b.isPlayer ? 'me' : ''}"><i style="background:${hex(b.color)}"></i><span>${esc(this.g.nameOf(b))}</span><b>${g.mode.gun ? lvl(b) : b.kills}</b></div>`).join('');
       if ($('board').classList.contains('open')) this.renderBoard();
