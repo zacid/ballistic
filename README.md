@@ -2,14 +2,22 @@
 
 Rolling toy balls with guns. A top-down arena shooter in the spirit of Babo Violent 2, built with Three.js.
 
-- **Solo:** free-for-all against 7 bots (first to 20 pops), or Gun Game.
-- **With a friend:** 1v1 (first to 10), the two of you against 5 bots (first team to 30), or Gun Game 1v1, joined with an invite link. Rematch goes straight back in without the lobby.
+- **Solo:** free-for-all against 7 bots (first to 20 pops), Gun Game, or Hold the Fort.
+- **With a friend:** 1v1 (first to 10), the two of you against 5 bots (first team to 30), Gun Game 1v1, or Hold the Fort together, joined with an invite link. Rematch goes straight back in without the lobby.
 - Six guns (shotgun, chaingun, rockets, railgun, bouncer, pistol), grenades, and a Spacebar ability (dash, spikes, bubble, shockwave).
 - **Arenas:** a fresh random arena each match, or two hand-made ones with raised floors: **Fort** (a keep with ramps and battlements, the default for 2 vs bots) and **Towers** (two raised corner towers).
 
 ### Gun Game
 
 Every pop moves you one weapon up the ladder: rockets, railgun, chaingun, bouncer, shotgun, pistol, unlimited grenades, then spikes. Pop someone with spikes to win. One pop per level against bots, two in the 1v1. Getting spiked (or popping yourself) drops you a level. The spikes ability and grenade pickups are off in this mode.
+
+### Hold the Fort
+
+Defend the keep on the Fort map against waves of bots. Each wave brings more of them, with better guns and sharper aim, and every 5th wave has a boss: a big, slow, rocket-firing ball with 450 HP that shrugs off knockback. The defenders share a pool of lives (3 solo, 5 for two players). Clearing a wave or popping a boss gives one back, and you heal between waves. If you die with no lives left you sit out until the next wave; if everyone is out, the fort falls. Your best wave is saved.
+
+### Music
+
+The soundtrack is generated live by a small step sequencer (`src/music.ts`): square-wave bass, a pulse arpeggio, a lead line that is new every match, and synth drums. It gets busier and faster in the last 30 seconds, when a boss is out, or when someone is close to winning. Toggle it in settings.
 
 Shots skim up onto raised floors on their own (there's no vertical aim), so only walls and battlements give cover.
 
@@ -115,12 +123,13 @@ The relay uses one SQLite-backed Durable Object per room with the WebSocket Hibe
 | `src/render.ts` | Renderer, shadows, GTAO, bloom, quality presets, GPU timing |
 | `src/fx.ts` | Particles, smoke, flashes, shockwave rings |
 | `src/audio.ts` | Synthesised sound effects |
+| `src/music.ts` | Procedural soundtrack sequencer |
 | `src/hud.ts` | Menus, lobby, HUD, performance panel |
 | `src/config.ts` | Weapons, abilities, modes and other tunables |
 
 ## Tests
 
-`tests/solo.mjs` fast-forwards bot-only matches (Gun Game on Fort and Towers, free-for-all) and checks for errors. `tests/gg.mjs` plays online Gun Game 1v1 through the local servers, checks the ladder syncs, and tests the rematch.
+`tests/solo.mjs` fast-forwards bot-only matches (Gun Game on Fort and Towers, free-for-all) and checks for errors. `tests/waves.mjs` and `tests/waves-duo.mjs` cover Hold the Fort solo and online. `tests/gg.mjs` plays online Gun Game 1v1 through the local servers, checks the ladder syncs, and tests the rematch.
 
 `tests/p2p.mjs` runs two headless browsers against a local PeerJS server, creates an invite, joins it, plays a duel and checks that kills and disconnects sync:
 

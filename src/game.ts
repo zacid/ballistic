@@ -2,10 +2,10 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CLIMB, Arena, CELL } from './arena';
 import { Audio } from './audio';
-import { Babo, makeBabo, setTeamRing, setWeapon, updateBaboVisual } from './babo';
+import { Babo, makeBabo, setBoss, setTeamRing, setWeapon, updateBaboVisual } from './babo';
 import {
-  ABILITIES, AbilityId, BALL, BOT_NAMES, COLORS, DASH, DIFFICULTY, Difficulty, GRENADE, LADDER, MapChoice, MODES, ModeDef, ModeId,
-  PICKABLE, SPIKES, WAVE, WEAPONS, WeaponId,
+  ABILITIES, AbilityId, BALL, BOSS, BOT_NAMES, COLORS, DASH, DIFFICULTY, Difficulty, GRENADE, LADDER, MapChoice, MODES, ModeDef, ModeId,
+  PICKABLE, SPIKES, WAVE, WAVES, WEAPONS, WeaponId,
 } from './config';
 import type { MapId } from './arena';
 import { Fx } from './fx';
@@ -38,7 +38,7 @@ const STORE = 'ballistic.v1';
 export interface Saved {
   weapon: WeaponId; ability: AbilityId; color: number; difficulty: Difficulty; quality: Quality | 'auto';
   muted: boolean; best?: number; perf?: boolean; nick: string;
-  soloMode: 'solo' | 'gungame'; map: MapChoice;
+  soloMode: 'solo' | 'gungame' | 'waves'; map: MapChoice; bestWave?: number; music?: boolean;
 }
 function load(): Saved {
   let s: Partial<Saved> = {};
@@ -46,7 +46,7 @@ function load(): Saved {
   return {
     weapon: s.weapon ?? 'shotgun', ability: s.ability ?? 'dash', color: s.color ?? 0, difficulty: s.difficulty ?? 'normal',
     quality: s.quality ?? 'auto', muted: !!s.muted, best: s.best, perf: s.perf, nick: s.nick ?? '',
-    soloMode: s.soloMode ?? 'solo', map: s.map ?? 'auto',
+    soloMode: s.soloMode ?? 'solo', map: s.map ?? 'auto', bestWave: s.bestWave, music: s.music ?? true,
   };
 }
 
@@ -80,6 +80,8 @@ export class Game {
   epoch = 0;
   partner = '';
   endReason = '';
+  /** Hold the Fort state (the host runs it; guests mirror it from the host state). */
+  wv = { n: 0, lives: 0, breakT: 0, queue: 0, spawnT: 0, boss: -1, out: new Set<number>(), cleared: false };
   private offer: StartOffer | null = null;
   private netT = 0;
   private peerOffset = new Map<string, number>();
@@ -100,6 +102,7 @@ export class Game {
     this.r = new Renderer(canvas);
     this.fx = new Fx(this.r.scene);
     this.audio.setMuted(this.saved.muted);
+    this.audio.music.setEnabled(this.saved.music !== false);
     this.pendingWeapon = this.saved.weapon;
     this.pendingAbility = this.saved.ability;
     const tg = new THREE.BoxGeometry(0.07, 0.07, 1); tg.translate(0, 0, -0.5);
@@ -135,7 +138,7 @@ export class Game {
 
   /** Which arena a mode plays on, given the player's map choice. */
   resolveMap(mode: ModeDef, choice: MapChoice = this.saved.map): MapId {
-    if (choice === 'auto') return mode.map ?? 'random';
+    if (choice === 'auto' || mode.waves) return mode.map ?? 'random';
     return choice;
   }
 
@@ -151,7 +154,7 @@ export class Game {
     const roster: RosterEntry[] = [{ id: 0, name: 'You', color: COLORS[pc].hex, team: 0, human: true }];
     const cols = COLORS.filter((_, i) => i !== pc);
     const names = [...BOT_NAMES].sort(() => Math.random() - 0.5);
-    for (let i = 0; i < mode.bots; i++) roster.push({ id: i + 1, name: names[i], color: cols[i % cols.length].hex, team: i + 1, human: false });
+    for (let i = 0; i < mode.bots; i++) roster.push({ id: i + 1, name: names[i % names.length], color: cols[i % cols.length].hex, team: mode.teams ? 1 : i + 1, human: false });
     this.begin(mode, (Math.random() * 1e9) | 0, roster, 0, this.resolveMap(mode));
   }
 
@@ -183,7 +186,13 @@ export class Game {
       this.babos.push(b);
       if (me) this.player = b;
     }
-    for (const b of this.babos) { this.r.scene.add(b.root); if (b.local) this.spawn(b, true); else { b.alive = false; b.root.visible = false; } }
+    const humans = this.babos.filter(b => b.human).length;
+    this.wv = { n: 0, lives: humans > 1 ? WAVES.livesDuo : WAVES.lives, breakT: WAVES.firstBreak, queue: 0, spawnT: 0, boss: -1, out: new Set(), cleared: false };
+    for (const b of this.babos) {
+      this.r.scene.add(b.root);
+      // Hold the Fort: the bots wait off-stage until their wave
+      if (b.local && !(mode.waves && !b.human)) this.spawn(b, true); else { b.alive = false; b.root.visible = false; b.respawnT = 1e9; }
+    }
     this.matchT = mode.time; this.countT = 3.2; this.state = 'countdown';
     this.paused = false;
     this.hud.onStart();
@@ -197,10 +206,13 @@ export class Game {
       ? [...this.babos].sort((a, b) => Number(b.won) - Number(a.won) || b.tier - a.tier || b.tierKills - a.tierKills || b.kills - a.kills)
       : [...this.babos].sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
     let won: boolean;
-    if (this.mode.teams) { const ts = this.teamScores(); won = ts[this.player.team] >= Math.max(...Object.values(ts)); }
+    if (this.mode.waves) {
+      won = !this.saved.bestWave || this.wv.n > this.saved.bestWave;
+      if (!this.online && won) { this.saved.bestWave = this.wv.n; this.save(); }
+    } else if (this.mode.teams) { const ts = this.teamScores(); won = ts[this.player.team] >= Math.max(...Object.values(ts)); }
     else won = ranked[0] === this.player;
     const place = ranked.indexOf(this.player) + 1;
-    if (!this.online && (!this.saved.best || place < this.saved.best)) { this.saved.best = place; this.save(); }
+    if (!this.online && !this.mode.waves && (!this.saved.best || place < this.saved.best)) { this.saved.best = place; this.save(); }
     this.audio.play(won ? 'win' : 'lose');
     if (this.online && this.host) this.flushNet(true);
     this.hud.showResult(ranked, place, won);
@@ -212,8 +224,82 @@ export class Game {
     return t;
   }
 
+  // ---------- Hold the Fort ----------
+  private get humansN() { return this.babos.filter(b => b.human).length; }
+
+  /** Host only: breaks between waves, trickling bots in, clearing waves, and the fort falling. */
+  private stepWaves(dt: number) {
+    const w = this.wv;
+    if (w.breakT > 0) { w.breakT -= dt; if (w.breakT <= 0) this.startWave(w.n + 1); return; }
+    const bots = this.babos.filter(b => !b.human);
+    const alive = bots.filter(b => b.alive).length;
+    w.spawnT -= dt;
+    if (w.queue > 0 && w.spawnT <= 0 && alive < WAVES.maxAlive(w.n, this.humansN)) {
+      const slot = bots.find(b => !b.alive);
+      if (slot) {
+        const bossWave = w.n % BOSS.every === 0;
+        const makeBoss = bossWave && w.boss < 0 && w.queue === WAVES.count(w.n, this.humansN) + 1;
+        if (makeBoss) { setBoss(slot, true); w.boss = slot.id; } else if (slot.boss) setBoss(slot, false);
+        this.spawn(slot); w.queue--; w.spawnT = WAVES.spawnGap;
+        if (makeBoss) { this.hud.banner(`${slot.name.toUpperCase()} THE BIG ONE`, true, 1.8); this.audio.play('boss'); }
+      }
+    }
+    if (w.queue <= 0 && alive === 0) {
+      w.breakT = WAVES.breakT; w.cleared = true;
+      w.lives = Math.min(WAVES.maxLives, w.lives + 1);
+      this.onWaveCleared();
+    }
+    // everyone is down with no lives left
+    const humans = this.babos.filter(b => b.human);
+    if (humans.every(b => !b.alive && w.out.has(b.id))) this.end(`The fort fell on wave ${w.n}`);
+  }
+
+  private startWave(n: number) {
+    const w = this.wv;
+    w.n = n; w.cleared = false; w.boss = -1; w.spawnT = 0.5;
+    w.queue = WAVES.count(n, this.humansN) + (n % BOSS.every === 0 ? 1 : 0);
+    w.out.clear();
+    for (const b of this.babos) if (!b.human) b.respawnT = 1e9;
+    this.onWaveStart();
+  }
+
+  /** Every client: top up the defenders and announce the wave. */
+  private onWaveStart() {
+    const n = this.wv.n;
+    for (const b of this.babos) if (b.local && b.human && b.alive) { b.hp = Math.max(b.hp, BALL.hp); b.nades = Math.max(b.nades, GRENADE.start); }
+    const boss = n % BOSS.every === 0;
+    this.hud.banner(boss ? `WAVE ${n}: BOSS` : `WAVE ${n}`, false, 1.6);
+    this.audio.play(boss ? 'boss' : 'go');
+  }
+
+  private onWaveCleared() {
+    this.hud.banner(`WAVE ${this.wv.n} CLEARED`, true, 1.8);
+    this.hud.toast('+1 life. Healing up for the next wave');
+    this.audio.play('kill');
+  }
+
+  /** Host only: a defender's death costs a shared life, or sits them out until the next wave. */
+  private waveDeath(v: Babo) {
+    const w = this.wv;
+    if (v.boss) {
+      if (this.host) { w.boss = -1; w.lives = Math.min(WAVES.maxLives, w.lives + 1); }
+      this.hud.banner('BOSS POPPED! +1 LIFE', false, 1.6); this.r.addShake(0.6);
+      this.explode(v.x, v.z, v.id, 3.5, 0, 0, false, v.gy);
+    }
+    if (!v.human || !this.host) return;
+    if (w.lives > 0) w.lives--;
+    else { w.out.add(v.id); if (v.isPlayer) this.hud.toast('No lives left. You are back next wave'); }
+  }
+
+  /** Bots sharpen up as the waves go on. */
+  private waveDiff() {
+    const d = DIFFICULTY[this.saved.difficulty], n = this.wv.n;
+    return { react: Math.max(0.14, d.react - n * 0.02), aimErr: Math.max(0.05, d.aimErr - n * 0.008), lead: Math.min(1, d.lead + n * 0.03), nade: Math.min(1, d.nade + n * 0.05) };
+  }
+
   private checkLimit() {
     if (!this.host || this.state !== 'playing') return;
+    if (this.mode.waves) return;
     if (this.mode.gun) { if (this.babos.some(b => b.won)) setTimeout(() => { if (this.state === 'playing') this.end(); }, 900); return; }
     const hit = this.mode.teams ? Object.values(this.teamScores()).some(v => v >= this.mode.limit) : this.babos.some(b => b.kills >= this.mode.limit);
     if (hit) setTimeout(() => { if (this.state === 'playing') this.end(); }, 900);
@@ -221,7 +307,10 @@ export class Game {
 
   spawn(b: Babo, initial = false) {
     // co-op on a hand-made map: the humans start and respawn inside their base
-    const pool = this.mode.teams && b.human && this.map !== 'random' && this.arena.homeSpawns.length ? this.arena.homeSpawns : this.arena.spawns;
+    const home = this.arena.homeSpawns;
+    const pool = this.mode.teams && b.human && this.map !== 'random' && home.length ? home
+      : this.mode.waves && !b.human && home.length ? this.arena.spawns.filter(s => !home.includes(s))
+      : this.arena.spawns;
     let best = pool[0];
     if (initial && pool === this.arena.homeSpawns) {
       best = pool[(b.id * 7) % pool.length];
@@ -244,13 +333,17 @@ export class Game {
       if (b.weapon !== w) setWeapon(b, w); else { b.ammo = WEAPONS[w].clip; b.reloadT = 0; }
       if (b.isPlayer && this.pendingAbility !== 'spikes' && b.ability !== this.pendingAbility) { b.ability = this.pendingAbility; b.abCool = 0; }
       if (!b.human) { const ab = BOT_ABILITIES(true); b.ability = ab[(Math.random() * ab.length) | 0]; }
+    } else if (!b.human && this.mode.waves) {
+      const pool = WAVES.guns(this.wv.n);
+      setWeapon(b, b.boss ? 'rocket' : pool[(Math.random() * pool.length) | 0]);
+      b.ability = b.boss ? 'shockwave' : AIDS[(Math.random() * AIDS.length) | 0];
     } else if (!b.human) { setWeapon(b, PICKABLE[(Math.random() * PICKABLE.length) | 0]); b.ability = AIDS[(Math.random() * AIDS.length) | 0]; }
     else if (b.isPlayer) {
       if (b.weapon !== this.pendingWeapon) setWeapon(b, this.pendingWeapon); else { b.ammo = WEAPONS[b.weapon].clip; b.reloadT = 0; }
       if (b.ability !== this.pendingAbility) { b.ability = this.pendingAbility; b.abCool = 0; }
     }
     b.x = best.x; b.z = best.z; b.vx = b.vz = 0; b.y = b.gy = this.arena.floorAt(best.x, best.z); b.vy = 0;
-    b.hp = BALL.hp; b.alive = true; b.root.visible = true; b.nades = this.mode.gun ? 0 : GRENADE.start; b.cool = 0.3; b.streak = 0; b.abT = 0;
+    b.hp = b.maxHp; b.alive = true; b.root.visible = true; b.nades = this.mode.gun ? 0 : GRENADE.start; b.cool = 0.3; b.streak = 0; b.abT = 0;
     b.spawnShield = initial ? 0 : 1.3; b.lastHitBy = -1; b.brain = undefined;
     if (!initial) this.spawnFx(b);
   }
@@ -324,7 +417,7 @@ export class Game {
       if (v === b || !v.alive || !this.canDamage(b, v)) continue;
       const u = ((v.x - x0) * sdx + (v.z - z0) * sdz) / l2; if (u < 0 || u > 1) continue;
       const px = x0 + sdx * u, pz = z0 + sdz * u;
-      if (Math.hypot(v.x - px, v.z - pz) > BALL.radius + 0.1) continue;
+      if (Math.hypot(v.x - px, v.z - pz) > v.rad + 0.1) continue;
       this.hit(b, v, w.damage, b.aimX * w.knock, b.aimZ * w.knock, 2);
       for (let k = 0; k < 6; k++) this.fx.bit(v.x, v.y + 0.5, v.z, b.aimX * 6 + (Math.random() - 0.5) * 4, 2 + Math.random() * 3, b.aimZ * 6 + (Math.random() - 0.5) * 4, 0.07, v.color, 0.7);
     }
@@ -373,6 +466,7 @@ export class Game {
     if (!v.alive) return;
     if (v.abT > 0 && v.ability === 'bubble') { dmg *= 0.3; kx *= 0.3; kz *= 0.3; vy *= 0.3; }
     if (v.abT > 0 && v.ability === 'dash') { kx = kz = vy = 0; }
+    if (v.boss) { kx *= BOSS.knock; kz *= BOSS.knock; vy *= BOSS.knock; }
     v.vx += kx; v.vz += kz; v.vy += vy;
     if (v.spawnShield > 0) return;
     v.hp -= dmg; v.hurtT = 0.12;
@@ -401,6 +495,7 @@ export class Game {
       const msgs: Record<number, string> = { 2: 'DOUBLE!', 3: 'TRIPLE!', 4: 'RAMPAGE!', 5: 'UNSTOPPABLE!' };
       this.hud.banner(msgs[Math.min(5, k.streak)] ?? `POPPED ${v.name.toUpperCase()}`, !msgs[Math.min(5, k.streak)]);
     }
+    if (this.mode.waves) this.waveDeath(v);
     if (v.isPlayer) this.hud.onPlayerDeath(k && k !== v ? k : null);
     if (v.gy < 0.1) this.arena.splat(v.x, v.z, 1.1 + Math.random() * 0.4, v.color);
     this.audio.play('pop', v.x, v.z);
@@ -458,10 +553,10 @@ export class Game {
     for (const b of this.babos) {
       if (!b.alive) continue;
       const dx = b.x - x, dz = b.z - z, d = Math.hypot(dx, dz);
-      if (d > r + BALL.radius) continue;
+      if (d > r + b.rad) continue;
       if (Math.abs((b.y + 0.5) - (y + 0.5)) > r) continue;
       if (d > 0.3 && this.arena.raycast(x - (dx / d) * 0.05, z - (dz / d) * 0.05, b.x, b.z, Math.max(y, b.y) + 0.5, true) >= 0) continue;
-      const k = Math.max(0, 1 - Math.max(0, d - BALL.radius) / r);
+      const k = Math.max(0, 1 - Math.max(0, d - b.rad) / r);
       const nx = d > 0.01 ? dx / d : Math.random() - 0.5, nz = d > 0.01 ? dz / d : Math.random() - 0.5;
       this.hit(att, b, dmg * Math.pow(k, 0.7) * (b.id === owner ? 0.45 : 1), nx * knock * k, nz * knock * k, 6 * k);
     }
@@ -483,9 +578,9 @@ export class Game {
       for (const v of this.babos) {
         if (v === b || !v.alive) continue;
         const dx = v.x - b.x, dz = v.z - b.z, d = Math.hypot(dx, dz);
-        if (d > WAVE.radius + BALL.radius) continue;
+        if (d > WAVE.radius + v.rad) continue;
         if (this.arena.raycast(b.x, b.z, v.x, v.z, b.y + 0.5, true) >= 0) continue;
-        const k = 1 - Math.max(0, d - BALL.radius * 2) / WAVE.radius;
+        const k = 1 - Math.max(0, d - b.rad - v.rad) / WAVE.radius;
         this.hit(b, v, WAVE.damage * (0.5 + 0.5 * k), (dx / (d || 1)) * WAVE.knock * (0.5 + 0.5 * k), (dz / (d || 1)) * WAVE.knock * (0.5 + 0.5 * k), 4);
       }
     }
@@ -519,7 +614,7 @@ export class Game {
         // the ability hits each ball once per use; the Gun Game spikes can hit again after a moment
         if (spikeWeapon ? (b.spikeCd.get(v.id) ?? 0) > this.clock : b.spikeHits.has(v.id)) continue;
         const dx = v.x - b.x, dz = v.z - b.z, d = Math.hypot(dx, dz);
-        if (d > BALL.radius * 2 + 0.32 || Math.abs(v.y - b.y) > 0.8) continue;
+        if (d > b.rad + v.rad + 0.32 || Math.abs(v.y - b.y) > 0.8) continue;
         if (spikeWeapon) b.spikeCd.set(v.id, this.clock + 0.6); else b.spikeHits.add(v.id);
         const nx = dx / (d || 1), nz = dz / (d || 1);
         this.hit(b, v, spikeWeapon ? 100 : SPIKES.damage, nx * SPIKES.knock, nz * SPIKES.knock, 3);
@@ -540,19 +635,20 @@ export class Game {
       // guests wait for the host's go (with a safety margin if the message is late)
       if (this.countT <= 0 && (this.host || this.countT < -1.5)) this.go();
     }
-    if (live && this.host) { this.matchT -= dt; if (this.matchT <= 0) { this.matchT = 0; this.end(); } }
+    if (this.mode.waves) { if (live) this.matchT += dt; if (live && this.host) this.stepWaves(dt); }
+    else if (live && this.host) { this.matchT -= dt; if (this.matchT <= 0) { this.matchT = 0; this.end(); } }
     else if (live) this.matchT = Math.max(0, this.matchT - dt);
 
-    const diff = DIFFICULTY[this.saved.difficulty];
+    const diff = this.mode.waves ? this.waveDiff() : DIFFICULTY[this.saved.difficulty];
     for (const b of this.babos) {
       if (!b.local) { this.stepRemote(b, dt); continue; }
       if (!b.alive) {
-        if (this.state === 'playing' || this.state === 'countdown') { b.respawnT -= dt; if (b.respawnT <= 0) this.spawn(b); }
+        if ((this.state === 'playing' || this.state === 'countdown') && !(this.mode.waves && (!b.human || this.wv.out.has(b.id)))) { b.respawnT -= dt; if (b.respawnT <= 0) this.spawn(b); }
         continue;
       }
       b.cool -= dt; b.nadeCool -= dt; b.spawnShield = Math.max(0, b.spawnShield - dt);
       if (b.reloadT > 0) { b.reloadT -= dt; if (b.reloadT <= 0) { b.ammo = WEAPONS[b.weapon].clip; if (b.isPlayer) this.audio.play('reload'); } }
-      if (b.hp > BALL.hp) b.hp = Math.max(BALL.hp, b.hp - dt * 3);
+      if (b.hp > b.maxHp) b.hp = Math.max(b.maxHp, b.hp - dt * 3);
       if (this.state === 'countdown') { b.moveX = b.moveZ = 0; b.fire = false; b.wantAbility = false; }
       else if (b.isPlayer) this.input.apply(b);
       else if (this.state === 'playing') thinkBot(this, b, dt, diff);
@@ -567,7 +663,7 @@ export class Game {
     // ball vs ball: remote balls are immovable obstacles for the local ones
     for (let i = 0; i < this.babos.length; i++) for (let j = i + 1; j < this.babos.length; j++) {
       const a = this.babos[i], c = this.babos[j]; if (!a.alive || !c.alive || (!a.local && !c.local)) continue;
-      const dx = c.x - a.x, dz = c.z - a.z, d = Math.hypot(dx, dz), min = BALL.radius * 2;
+      const dx = c.x - a.x, dz = c.z - a.z, d = Math.hypot(dx, dz), min = a.rad + c.rad;
       if (d >= min || d < 1e-4) continue;
       const nx = dx / d, nz = dz / d, over = min - d;
       const wa = a.local ? (c.local ? 0.5 : 1) : 0, wc = c.local ? (a.local ? 0.5 : 1) : 0;
@@ -608,7 +704,7 @@ export class Game {
     if (dashing) { /* keep the burst */ }
     else if (ml > 0.01) {
       const mx = b.moveX / Math.max(1, ml), mz = b.moveZ / Math.max(1, ml);
-      const vmax = BALL.maxSpeed * (b.weapon === 'spikes' ? 1.15 : 1);   // the Gun Game finale is a bit quicker
+      const vmax = BALL.maxSpeed * (b.weapon === 'spikes' ? 1.15 : 1) * (b.boss ? BOSS.speed : 1);   // the Gun Game finale is a bit quicker
       const tx = mx * vmax, tz = mz * vmax;
       let dx = tx - b.vx, dz = tz - b.vz; const dl = Math.hypot(dx, dz);
       const lim = BALL.accel * dt * (sp > BALL.maxSpeed * 1.1 ? 0.35 : 1);
@@ -619,7 +715,7 @@ export class Game {
     }
     if (!dashing && sp > BALL.maxSpeed) { const k = Math.exp(-1.6 * dt); b.vx *= k; b.vz *= k; }
     b.x += b.vx * dt; b.z += b.vz * dt;
-    const hit = this.arena.collide(b, BALL.radius, b.y);
+    const hit = this.arena.collide(b, b.rad, b.y);
     // follow the ground: roll up ramps, drop off ledges
     const gy = this.arena.floorAt(b.x, b.z); b.gy = gy;
     if (b.y < gy) { b.y = gy; if (b.vy < 0) b.vy = 0; }
@@ -650,7 +746,7 @@ export class Game {
         if (!b.alive || b.id === s.owner || (shooter && !this.canDamage(shooter, b))) continue;
         if (Math.abs(b.y + 0.5 - s.y) > 1.35) continue;   // shot passes over or under
         const fx = s.x - b.x, fz = s.z - b.z;
-        const bq = fx * sdx + fz * sdz, c = fx * fx + fz * fz - (BALL.radius + 0.08) ** 2;
+        const bq = fx * sdx + fz * sdz, c = fx * fx + fz * fz - (b.rad + 0.08) ** 2;
         let tt: number;
         if (c <= 0) tt = 0; else { const disc = bq * bq - l2 * c; if (disc < 0) continue; tt = (-bq - Math.sqrt(disc)) / l2; }
         if (tt < 0 || tt > 1) continue;
@@ -956,8 +1052,24 @@ export class Game {
       const tier = Math.floor(g / 10); b.tierKills = g % 10;
       if (tier !== b.tier) { const up = tier > b.tier; b.tier = tier; if (b.local && b.alive) setWeapon(b, LADDER[tier]); if (up && b.isPlayer) this.onLevelUp(b); }
     });
+    if (this.mode.waves && h.w) this.mirrorWaves(h.w);
     if (h.st === 'p' && this.state === 'countdown') this.go();
     if (h.st === 'o' && this.state !== 'over') this.end();
+  }
+
+  /** Guest: follow the host's wave state (and do the local side of wave starts). */
+  private mirrorWaves(a: number[]) {
+    const w = this.wv, [n, lives, br, left, boss, outMask] = a;
+    const newWave = n !== w.n && n > 0;
+    const cleared = br > 0 && w.breakT <= 0 && n > 0;
+    w.n = n; w.lives = lives; w.breakT = br / 10; w.queue = left; w.cleared = br > 0;
+    w.out = new Set(this.babos.filter(b => outMask & (1 << b.id)).map(b => b.id));
+    if (boss !== w.boss) {
+      const old = this.babos[w.boss]; if (old?.boss) setBoss(old, false);
+      const nb = this.babos[boss]; if (nb) { setBoss(nb, true); this.hud.banner(`${nb.name.toUpperCase()} THE BIG ONE`, true, 1.8); this.audio.play('boss'); }
+      w.boss = boss;
+    }
+    if (newWave) this.onWaveStart(); else if (cleared) this.onWaveCleared();
   }
 
   /** Place remote balls on their interpolated path, ~110 ms behind their clock. */
@@ -988,6 +1100,7 @@ export class Game {
       e: this.epoch, st: this.state === 'countdown' ? 'c' : this.state === 'over' ? 'o' : 'p', t: Math.round(this.matchT * 10) / 10,
       k: this.babos.map(b => b.kills), d: this.babos.map(b => b.deaths),
       ...(this.mode.gun ? { g: this.babos.map(b => b.won ? 99 : b.tier * 10 + b.tierKills) } : {}),
+      ...(this.mode.waves ? { w: [this.wv.n, this.wv.lives, Math.round(this.wv.breakT * 10), this.wv.queue + this.babos.filter(b => !b.human && b.alive).length, this.wv.boss, [...this.wv.out].reduce((m, id) => m | (1 << id), 0)] } : {}),
     } : null;
     this.net.flush(this.snapshot(), h);
     void force;
@@ -1047,6 +1160,7 @@ export class Game {
       this.r.follow(p.x, p.z, this.aimPoint.x, this.aimPoint.z, raw);
       this.audio.listener.x = p.x; this.audio.listener.z = p.z;
     }
+    this.updateMusic();
     const t1 = performance.now();
     if (draw) this.r.render();
     const t2 = performance.now();
@@ -1075,6 +1189,23 @@ export class Game {
       _m.compose(_p, _q, _s); this.tracer.setMatrixAt(n, _m); this.tracer.setColorAt(n, _c.set(w.color).multiplyScalar(3)); n++;
     }
     this.tracer.count = n; this.tracer.instanceMatrix.needsUpdate = true; if (this.tracer.instanceColor) this.tracer.instanceColor.needsUpdate = true;
+  }
+
+  /** Music follows the match: menu groove outside it, and the match track heats up near the end. */
+  private updateMusic() {
+    const m = this.audio.music;
+    if (this.state === 'menu' || this.state === 'lobby') { m.set('menu'); return; }
+    if (this.state === 'over') { m.set('off'); return; }
+    if (this.state === 'countdown') { m.set('match', 0); return; }
+    const mode = this.mode, bs = this.babos;
+    let hot = false;
+    if (mode.waves) hot = this.wv.boss >= 0 || (this.wv.lives <= 1 && this.wv.n > 1) || this.wv.n >= 8;
+    else if (mode.gun) hot = bs.some(b => b.tier >= LADDER.length - 2);
+    else if (mode.teams) hot = Math.max(...Object.values(this.teamScores())) >= mode.limit - 5;
+    else hot = bs.some(b => b.kills >= mode.limit - 3);
+    if (mode.time > 0 && this.matchT < 30) hot = true;
+    const calm = mode.waves && this.wv.breakT > 0;
+    m.set('match', calm ? 0 : hot ? 2 : 1);
   }
 
   private adaptQuality(dt: number) {

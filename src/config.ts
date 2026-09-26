@@ -98,13 +98,14 @@ export const BALL = {
   respawn: 2.2,
 };
 
-export type ModeId = 'solo' | 'duel' | 'coop' | 'gungame' | 'ggduel';
-export interface ModeDef { id: ModeId; name: string; blurb: string; bots: number; limit: number; time: number; teams: boolean; size: number; online: boolean; gun?: boolean; perTier?: number; map?: 'fort' | 'towers' | 'random' }
+export type ModeId = 'solo' | 'duel' | 'coop' | 'gungame' | 'ggduel' | 'waves';
+export interface ModeDef { id: ModeId; name: string; blurb: string; bots: number; limit: number; time: number; teams: boolean; size: number; online: boolean; gun?: boolean; perTier?: number; map?: 'fort' | 'towers' | 'random'; waves?: boolean }
 export const MODES: Record<ModeId, ModeDef> = {
   solo: { id: 'solo', name: 'Free-for-all', blurb: 'You and 7 bots. First to 20 pops.', bots: 7, limit: 20, time: 240, teams: false, size: 32, online: false },
   duel: { id: 'duel', name: '1v1', blurb: 'You against your friend. First to 10 pops.', bots: 0, limit: 10, time: 300, teams: false, size: 22, online: true },
   coop: { id: 'coop', name: '2 vs bots', blurb: 'You and your friend against 5 bots. First team to 30.', bots: 5, limit: 30, time: 300, teams: true, size: 30, online: true, map: 'fort' },
   gungame: { id: 'gungame', name: 'Gun Game', blurb: 'Every pop moves you up a weapon. Win with a spikes kill.', bots: 7, limit: 8, time: 480, teams: false, size: 32, online: false, gun: true, perTier: 1 },
+  waves: { id: 'waves', name: 'Hold the Fort', blurb: 'Defend the keep against waves of bots. A boss every 5th wave.', bots: 8, limit: 0, time: 0, teams: true, size: 30, online: true, map: 'fort', waves: true },
   ggduel: { id: 'ggduel', name: 'Gun Game 1v1', blurb: 'Climb the weapon ladder: 2 pops per weapon, win with spikes.', bots: 0, limit: 8, time: 480, teams: false, size: 22, online: true, gun: true, perTier: 2 },
 };
 export const MAPS = {
@@ -114,6 +115,14 @@ export const MAPS = {
   towers: { name: 'Towers', blurb: 'Two raised towers in opposite corners' },
 } as const;
 export type MapChoice = keyof typeof MAPS;
+/** Hold the Fort. Lives are shared by the defenders; a death with none left sits you out until the next wave. */
+export const WAVES = {
+  lives: 3, livesDuo: 5, maxLives: 9, breakT: 6, firstBreak: 3, spawnGap: 0.7,
+  count: (n: number, humans: number) => Math.round((2 + n * 1.5) * (humans > 1 ? 1.5 : 1)),
+  maxAlive: (n: number, humans: number) => Math.min(8, 2 + Math.ceil(n / 2) + humans),
+  guns: (n: number): WeaponId[] => n <= 2 ? ['pistol', 'shotgun', 'chaingun'] : n <= 4 ? ['pistol', 'shotgun', 'chaingun', 'bouncer'] : n <= 6 ? ['shotgun', 'chaingun', 'bouncer', 'rocket'] : ['shotgun', 'chaingun', 'bouncer', 'rocket', 'railgun'],
+};
+export const BOSS = { hp: 450, every: 5, speed: 0.8, knock: 0.3 };
 export const MATCH = { fragLimit: 20, timeLimit: 240, bots: 7 };
 
 export type AbilityId = 'dash' | 'spikes' | 'bubble' | 'shockwave';

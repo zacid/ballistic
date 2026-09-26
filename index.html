@@ -199,7 +199,10 @@ body.touch #wpn { left: auto; right: calc(14px + var(--sa-r)); transform: none; 
 .steps b { color: var(--cream); }
 #result-sub { margin-top: 6px; font: 400 22px var(--display); color: var(--cream); }
 #row3 { display: flex; gap: 28px; flex-wrap: wrap; justify-content: center; }
-.mode-btn.wide { grid-column: 1 / -1; background: linear-gradient(#e2cfff, #b38cff); }
+.mode-btn.gg { background: linear-gradient(#e2cfff, #b38cff); }
+.mode-btn.fort { background: linear-gradient(#b9f5d0, #3ee08f); }
+#race .lives { color: #ff6b8a; letter-spacing: 1px; margin-right: 6px; }
+#race .lives i { font-style: normal; opacity: .3; }
 .lobby-opts { display: grid; grid-template-columns: 1fr 1.4fr; gap: 12px; }
 .lobby-opts .seg button { padding: 5px 4px; font-size: 13px; }
 .kit-note { font-style: normal; font-size: 13px; font-weight: 700; color: var(--muted); padding: 4px 0; }
@@ -338,6 +341,7 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
   <div class="seg" id="quality-seg"></div>
   <h4>SOUND</h4>
   <div class="row"><label for="tog-mute">Mute (<kbd>M</kbd>)</label><input type="checkbox" id="tog-mute"></div>
+  <div class="row"><label for="tog-music">Music</label><input type="checkbox" id="tog-music"></div>
   <div class="row"><label for="tog-perf">Performance panel (<kbd>F</kbd>)</label><input type="checkbox" id="tog-perf"></div>
   <h4>DEBUG SWITCHES</h4>
   <div class="row"><label for="dbg-ao">Ambient occlusion</label><input type="checkbox" id="dbg-ao"></div>
@@ -385,7 +389,8 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
     <div id="lobby-modes">
       <button class="mode-btn" id="lobby-duel"><b>1v1</b><span>You against your friend. First to 10 pops.</span></button>
       <button class="mode-btn" id="lobby-coop"><b>2 vs bots</b><span>Hold the fort together against 5 bots. First team to 30.</span></button>
-      <button class="mode-btn wide" id="lobby-ggduel"><b>Gun Game 1v1</b><span>Climb 8 weapons, 2 pops each. Win with a spikes pop. Getting spiked drops you a level.</span></button>
+      <button class="mode-btn gg" id="lobby-ggduel"><b>Gun Game 1v1</b><span>Climb 8 weapons, 2 pops each. Win with a spikes pop.</span></button>
+      <button class="mode-btn fort" id="lobby-waves"><b>Hold the Fort</b><span>Survive waves of bots together. Shared lives, a boss every 5th wave.</span></button>
     </div>
     <div class="lobby-opts">
       <div><div class="kit-label">BOTS</div><div class="seg" id="lobby-difficulty-seg"></div></div>

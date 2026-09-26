@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { ABILITIES, AbilityId, BALL, GRENADE, WEAPONS, WeaponId } from './config';
+import { ABILITIES, AbilityId, BALL, BOSS, GRENADE, WEAPONS, WeaponId } from './config';
 
 const texCache = new Map<number, THREE.CanvasTexture>();
 
@@ -162,7 +162,10 @@ export interface Babo {
   kills: number; deaths: number;
   tier: number; tierKills: number; won: boolean;   // Gun Game
   gy: number;          // ground height under the ball
-  aimDist: number;     // how far away the player/bot is aiming (grenade throws)
+  aimDist: number;
+  rad: number;         // collision radius (the wave boss is bigger)
+  maxHp: number;
+  boss: boolean;     // how far away the player/bot is aiming (grenade throws)
   semiLock: boolean;   // semi-auto: wait for the trigger to be released
   spikeCd: Map<number, number>;
   streak: number;
@@ -200,7 +203,7 @@ export function makeBabo(id: number, name: string, color: number, weapon: Weapon
     weapon, ammo: WEAPONS[weapon].clip, reloadT: 0, cool: 0, nades: GRENADE.start, nadeCool: 0,
     ability, abCool: 0, abT: 0, abCount: 0, spikeHits: new Set(),
     aimX: 1, aimZ: 0, moveX: 0, moveZ: 0, fire: false, wantAbility: false,
-    kills: 0, deaths: 0, tier: 0, tierKills: 0, won: false, gy: 0, aimDist: 6, semiLock: false, spikeCd: new Map(), streak: 0, lastHitBy: -1, lastHitT: 0, hurtT: 0, spawnShield: 0,
+    kills: 0, deaths: 0, tier: 0, tierKills: 0, won: false, gy: 0, aimDist: 6, rad: BALL.radius, maxHp: BALL.hp, boss: false, semiLock: false, spikeCd: new Map(), streak: 0, lastHitBy: -1, lastHitT: 0, hurtT: 0, spawnShield: 0,
     root, ball, gun, ring, mat, spikes: sp, bubble, recoilZ: 0,
     net: [], netFire: false, netReload: false,
   };
@@ -213,6 +216,13 @@ export function setWeapon(b: Babo, w: WeaponId) {
   b.root.add(b.gun);
 }
 
+/** Hold the Fort boss: a big, tanky ball. Scaling the root keeps the gun and spikes in proportion. */
+export function setBoss(b: Babo, on: boolean) {
+  const s = on ? 1.7 : 1;
+  b.boss = on; b.rad = BALL.radius * s; b.maxHp = on ? BOSS.hp : BALL.hp;
+  b.root.scale.setScalar(s);
+}
+
 export function setTeamRing(b: Babo, color: number, opacity: number) {
   const m = b.ring.material as THREE.MeshBasicMaterial; m.color.set(color); m.opacity = opacity;
 }
@@ -220,11 +230,11 @@ export function setTeamRing(b: Babo, color: number, opacity: number) {
 const _axis = new THREE.Vector3(), _q = new THREE.Quaternion();
 
 export function updateBaboVisual(b: Babo, dt: number) {
-  b.root.position.set(b.x, BALL.radius + b.y, b.z);
+  b.root.position.set(b.x, b.rad + b.y, b.z);
   const sp = Math.hypot(b.vx, b.vz);
   if (sp > 0.01) {
     _axis.set(b.vz, 0, -b.vx).normalize();
-    _q.setFromAxisAngle(_axis, (sp * dt) / BALL.radius);
+    _q.setFromAxisAngle(_axis, (sp * dt) / b.rad);
     b.ball.quaternion.premultiply(_q);
   }
   const yaw = Math.atan2(b.aimX, b.aimZ);
@@ -235,7 +245,7 @@ export function updateBaboVisual(b: Babo, dt: number) {
   const spin = b.gun.userData.spin as THREE.Mesh | undefined;
   const firing = b.local ? b.fire && b.reloadT <= 0 : b.netFire && !b.netReload;
   if (spin) spin.rotation.z += dt * (firing ? 40 : 3);
-  b.ring.position.y = -BALL.radius - (b.y - b.gy) + 0.03;
+  b.ring.position.y = -BALL.radius - (b.y - b.gy) / (b.rad / BALL.radius) + 0.03;
   b.hurtT = Math.max(0, b.hurtT - dt);
   b.mat.emissiveIntensity = b.hurtT > 0 ? b.hurtT * 5 : b.spawnShield > 0 ? 0.25 + 0.2 * Math.sin(performance.now() / 60) : 0;
   // abilities

@@ -1,4 +1,5 @@
 // Every sound is synthesised: filtered noise bursts plus pitch-swept tones.
+import { Music } from './music';
 
 export class Audio {
   ctx: AudioContext | null = null;
@@ -7,6 +8,7 @@ export class Audio {
   listener = { x: 0, z: 0 };
   private noiseBuf: AudioBuffer | null = null;
   private last: Record<string, number> = {};
+  music = new Music();
 
   unlock() {
     if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume(); return; }
@@ -21,6 +23,7 @@ export class Audio {
     this.noiseBuf = ctx.createBuffer(1, n, n);
     const d = this.noiseBuf.getChannelData(0);
     for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+    this.music.attach(ctx, this.master, this.noiseBuf);
   }
 
   setMuted(m: boolean) { this.muted = m; if (this.master) this.master.gain.value = m ? 0 : 0.38; }
@@ -69,6 +72,7 @@ export class Audio {
       case 'pistol': this.noise('bandpass', 2400, 900, 0.07, 0.6 * v, 1.2); this.tone('square', 520, 160, 0.06, 0.18 * v); break;
       case 'grenade': this.noise('bandpass', 600, 1800, 0.14, 0.25 * v, 1.2); break;
       case 'levelup': [523, 784, 1046, 1568].forEach((f, i) => this.tone('square', f, f * 1.01, 0.12, 0.14, i * 0.06)); this.tone('sine', 260, 1040, 0.35, 0.18); break;
+      case 'boss': this.tone('sawtooth', 70, 45, 0.9, 0.35); this.tone('square', 140, 90, 0.9, 0.12); this.noise('lowpass', 900, 100, 0.9, 0.5); [220, 208, 196].forEach((f, i) => this.tone('square', f, f * 0.97, 0.22, 0.1, 0.25 + i * 0.22)); break;
       case 'demote': [494, 392, 311].forEach((f, i) => this.tone('sawtooth', f, f * 0.9, 0.16, 0.12, i * 0.1)); break;
       case 'boom':
         this.noise('lowpass', 2200, 60, 0.7, 1.1 * v); this.tone('sine', 120, 30, 0.55, 0.9 * v);

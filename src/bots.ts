@@ -40,9 +40,10 @@ export function thinkBot(g: Game, b: Babo, dt: number, diff: { react: number; ai
     for (const o of g.babos) {
       if (o === b || !o.alive || !g.canDamage(b, o)) continue;
       const d = Math.hypot(o.x - b.x, o.z - b.z);
-      if (d > 20) continue;
+      const far = g.mode.waves ? 80 : 20;   // wave bots always hunt the defenders
+      if (d > far) continue;
       const vis = g.arena.raycast(b.x, b.z, o.x, o.z, b.y + 0.55, true, CLIMB) < 0;
-      if (!vis && d > 9) continue;
+      if (!vis && d > (g.mode.waves ? 80 : 9)) continue;
       let s = d + (vis ? 0 : 8) - (o.id === br.target ? 3 : 0) - (o.hp < 40 ? 2.5 : 0) - (o.id === b.lastHitBy ? 3 : 0) + (o.spawnShield > 0 ? 6 : 0);
       if (s < bestScore) { bestScore = s; best = o.id; }
     }
@@ -107,12 +108,12 @@ export function thinkBot(g: Game, b: Babo, dt: number, diff: { react: number; ai
   if (ml > 0.01) {
     mx /= ml; mz /= ml;
     const look = 1.1;
-    if (!g.arena.clearPath(b.x, b.z, b.x + mx * look, b.z + mz * look, BALL.radius * 0.9, b.y)) {
+    if (!g.arena.clearPath(b.x, b.z, b.x + mx * look, b.z + mz * look, b.rad * 0.9, b.y)) {
       let found = false;
       for (const a of [0.7, -0.7, 1.4, -1.4, 2.1, -2.1]) {
         const ca = Math.cos(a), sa = Math.sin(a);
         const rx = mx * ca - mz * sa, rz = mx * sa + mz * ca;
-        if (g.arena.clearPath(b.x, b.z, b.x + rx * look, b.z + rz * look, BALL.radius * 0.9, b.y)) { mx = rx; mz = rz; found = true; break; }
+        if (g.arena.clearPath(b.x, b.z, b.x + rx * look, b.z + rz * look, b.rad * 0.9, b.y)) { mx = rx; mz = rz; found = true; break; }
       }
       if (!found) { mx = -mx; mz = -mz; br.strafe = -br.strafe; }
     }
