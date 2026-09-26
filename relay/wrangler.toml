@@ -2,6 +2,10 @@ name = "ballistic-relay"
 main = "src/index.ts"
 compatibility_date = "2026-09-01"
 
+[vars]
+# Pages allowed to request TURN credentials from /ice (local dev servers included)
+ALLOWED_ORIGINS = "https://zacid.github.io,http://localhost:5173,http://127.0.0.1:8766,http://localhost:8766"
+
 # One Durable Object per game room. SQLite-backed classes run on the Workers free plan.
 [[durable_objects.bindings]]
 name = "ROOMS"

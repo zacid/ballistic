@@ -81,7 +81,7 @@ Check it's up by opening `https://ballistic-relay.<you>.workers.dev/health` (it 
    npx wrangler secret put TURN_KEY_API_TOKEN
    npx wrangler deploy
    ```
-3. Open `https://ballistic-relay.<you>.workers.dev/ice`. It should say `"turn":true`.
+3. Check it from the game page: open the game, press F12, and in the Console run `await (await fetch("https://ballistic-relay.<you>.workers.dev/ice")).json()`. It should show `turn: true`. (Opening `/ice` directly in a tab returns "origin not allowed": only the pages listed in `ALLOWED_ORIGINS` in `relay/wrangler.toml` get credentials, and they expire after an hour. If you host the game somewhere else, add that address there and redeploy.)
 
 The first 1,000 GB a month are free; a match uses well under 1 GB an hour.
 
