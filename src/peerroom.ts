@@ -41,6 +41,8 @@ export class PeerRoom {
   /** Connection diagnostics for the lobby: ICE state and which candidate types each side found. */
   ice = { state: 'idle', local: '', remote: '', path: '' };
   private dialT = 0;
+  rttMs = 0;
+  pathKind = '';
   private timeoutMs = 15000;
 
   constructor(role: 'host' | 'guest', code: string, iceServers?: RTCIceServer[], timeoutMs = 15000) {
@@ -102,7 +104,9 @@ export class PeerRoom {
           if (r.type === 'remote-candidate') rem[r.candidateType] = (rem[r.candidateType] || 0) + 1;
           if (r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded') {
             const l = stats.get(r.localCandidateId), rr = stats.get(r.remoteCandidateId);
-            pair = `${l?.candidateType}/${l?.protocol} to ${rr?.candidateType}, ${Math.round((r.currentRoundTripTime || 0) * 1000)}ms`;
+            this.rttMs = Math.round((r.currentRoundTripTime || 0) * 1000);
+            this.pathKind = l?.candidateType === 'relay' || rr?.candidateType === 'relay' ? 'TURN' : 'direct';
+            pair = `${l?.candidateType}/${l?.protocol} to ${rr?.candidateType}, ${this.rttMs}ms`;
           }
         });
         const fmt = (o: Record<string, number>) => Object.entries(o).map(([k, v]) => `${k}${v}`).join(' ') || 'none';

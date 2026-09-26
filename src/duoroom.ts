@@ -112,6 +112,9 @@ export class DuoRoom {
     const via = /relay/.test(i.path) ? 'Cloudflare TURN' : 'direct';
     return { ...i, path: i.path ? `${via}: ${i.path}` : '' };
   }
+  /** Round-trip time to the other player (WebRTC) or to the relay (WebSocket), in ms. */
+  get ping() { const a = this.active; return !a ? 0 : a === this.ws ? this.ws!.rtt : this.p2p!.rttMs; }
+  get pathKind() { const a = this.active; return !a ? '' : a === this.ws ? 'relay' : (this.p2p!.pathKind || 'direct'); }
   get link() { return `${location.origin}${location.pathname}#${this.code}`; }
 
   // ---- the room-shaped API Net uses ----

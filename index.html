@@ -246,6 +246,19 @@ table.board td i { display: inline-block; width: 12px; height: 12px; border-radi
 #perf canvas { display: block; margin-top: 6px; width: 180px; height: 40px; background: rgba(0,0,0,0.25); border-radius: 6px; }
 body.perf #feed { top: calc(224px + var(--sa-t)); }
 #settings { max-height: calc(100% - 80px); overflow-y: auto; }
+#ping { display: flex; align-items: center; gap: 6px; padding: 4px 12px; font: 700 14px var(--ui); font-variant-numeric: tabular-nums; }
+#ping b { font: 400 18px var(--display); }
+#ping em { font-style: normal; color: var(--muted); font-size: 12px; }
+#ping.good b { color: var(--mint); } #ping.warn b { color: #ffc83a; } #ping.bad b { color: var(--cherry); }
+.kit-label { font: 400 13px var(--display); letter-spacing: .5px; color: var(--muted); }
+.kit-label span { font: 600 12px var(--ui); letter-spacing: 0; margin-left: 6px; }
+.kit { display: grid; gap: 6px; }
+.kit .kit-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.kit button { flex: 1; min-width: 88px; padding: 6px 8px; border-radius: 10px; border: 3px solid var(--ink); background: var(--ink-2); color: var(--cream); font: 700 14px var(--ui); cursor: pointer; }
+.kit button.on { background: var(--tangerine); color: var(--ink); }
+.kit button small { display: block; font-size: 11px; font-weight: 700; opacity: .75; }
+.kit-card { margin-top: 14px; padding: 12px 14px; width: min(520px, 100%); text-align: left; display: grid; gap: 8px; }
+#pause-note { margin-top: 6px; font-weight: 800; color: var(--cream); }
 #toast { position: fixed; z-index: 40; left: 50%; bottom: calc(120px + var(--sa-b)); transform: translate(-50%, 20px); opacity: 0; padding: 7px 16px; font-weight: 700; transition: opacity .2s, transform .2s; pointer-events: none; max-width: calc(100% - 32px); }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
 #loading { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: var(--sky); font: 400 26px var(--display); color: var(--ink); transition: opacity .4s; }
@@ -287,7 +300,7 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
   <div id="overheads"></div>
   <div id="floaters"></div>
   <div id="feed"></div>
-  <div id="top"><div class="pill" id="clock">4:00</div><div class="pill" id="race"></div></div>
+  <div id="top"><div class="pill" id="clock">4:00</div><div class="pill" id="race"></div><div class="pill" id="ping" hidden></div></div>
   <div id="mini"></div>
   <div id="banner"></div>
   <div id="dead" class="pill"><div id="dead-by"></div><div id="dead-t"></div><div id="dead-next"></div></div>
@@ -363,7 +376,8 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
       <button class="mode-btn" id="lobby-duel"><b>1v1</b><span>You against your friend. First to 10 pops.</span></button>
       <button class="mode-btn" id="lobby-coop"><b>2 vs bots</b><span>Team up against 5 bots. First team to 30.</span></button>
     </div>
-    <div id="lobby-loadout" class="tip"></div>
+    <div class="kit-label">YOUR LOADOUT</div>
+    <div class="kit" id="lobby-kit"></div>
     <ol class="tip steps" id="lobby-steps">
       <li>Press <b>Create invite link</b>.</li>
       <li>Send the link to your friend (WhatsApp, Discord, anything).</li>
@@ -374,7 +388,9 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
 </div>
 
 <div id="pause" class="screen">
-  <h1>PAUSED</h1>
+  <h1 id="pause-title">PAUSED</h1>
+  <div id="pause-note" class="shadowtext"></div>
+  <div class="pill kit-card"><div class="kit-label">LOADOUT <span>changes apply on your next respawn</span></div><div class="kit" id="pause-kit"></div></div>
   <button class="big-btn" id="resume">RESUME</button>
   <button class="ghost-btn" id="quit">QUIT TO MENU</button>
 </div>

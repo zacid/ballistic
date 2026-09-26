@@ -22,6 +22,7 @@ export class Hud {
   private boardT = 0;
   private deathKiller = '';
   private abWasReady = true;
+  private pingT = 0;
   private lobbyT = 0;
 
   constructor(private g: Game) {
@@ -124,8 +125,25 @@ export class Hud {
     ($('tog-mute') as HTMLInputElement).checked = this.g.saved.muted;
   }
 
-  pickAbility(a: AbilityId) {
+  pickAbility(a: AbilityId, silent = true) {
     this.g.saved.ability = a; this.g.pendingAbility = a; this.g.save();
+    if (!silent && this.g.player) this.toast(this.g.player.ability === a ? `${ABILITIES[a].name} ready` : `${ABILITIES[a].name} on next respawn`);
+  }
+
+  /** Compact gun + ability picker, used in the lobby and the pause menu. */
+  renderKit(id: string) {
+    const el = $(id); const g = this.g;
+    const inMatch = g.state === 'countdown' || g.state === 'playing';
+    el.innerHTML = `<div class="kit-row">${Object.values(WEAPONS).map(w => `<button data-w="${w.id}" class="${w.id === g.saved.weapon ? 'on' : ''}">${w.name}</button>`).join('')}</div>`
+      + `<div class="kit-row">${Object.values(ABILITIES).map(a => `<button data-a="${a.id}" class="${a.id === g.saved.ability ? 'on' : ''}">${a.name}<small>${a.cooldown}s</small></button>`).join('')}</div>`;
+    el.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+      g.audio.play('click');
+      const w = (b as HTMLElement).dataset.w as WeaponId | undefined, a = (b as HTMLElement).dataset.a as AbilityId | undefined;
+      if (w) this.pickWeapon(w, !inMatch);
+      if (a) this.pickAbility(a, !inMatch);
+      if (g.online) g.net.set({ c: g.saved.color });
+      this.renderKit(id);
+    }));
   }
 
   // ---------- lobby ----------
@@ -133,6 +151,7 @@ export class Hud {
     for (const id of ['menu', 'result', 'pause']) $(id).classList.remove('open');
     $('hud').classList.add('hidden');
     $('lobby').classList.add('open');
+    this.renderKit('lobby-kit');
     this.renderLobby();
   }
   toLobby() { this.g.backToLobby(); }
@@ -173,7 +192,7 @@ export class Hud {
         + (room.ice.state === 'relay' ? (room.ice.path ? ` | ${room.ice.path}` : '') : room.ice.path && room.ice.state.includes('connected') ? ` | ${room.ice.path}` : room.ice.state !== 'idle' ? ` | ICE ${room.ice.state} | mine ${room.ice.local || '-'} | theirs ${room.ice.remote || '-'}${room.ice.path ? ' | via ' + room.ice.path : ''}` : '')
         + (err ? ` | error ${err}` : '')
       : '';
-    $('lobby-loadout').textContent = `Your loadout: ${WEAPONS[g.saved.weapon].name} + ${ABILITIES[g.saved.ability].name}. Change it from the main menu.`;
+    if (!$('lobby-kit').childElementCount) this.renderKit('lobby-kit');
   }
 
   toMenu() {
@@ -208,11 +227,16 @@ export class Hud {
 
   pickWeapon(w: WeaponId, silent = false) {
     this.g.pendingWeapon = w; this.g.saved.weapon = w; this.g.save();
-    if (!silent) this.toast(this.g.player.weapon === w ? `${WEAPONS[w].name} equipped` : `${WEAPONS[w].name} on next respawn`);
+    if (!silent && this.g.player) this.toast(this.g.player.weapon === w ? `${WEAPONS[w].name} equipped` : `${WEAPONS[w].name} on next respawn`);
   }
 
   togglePause() {
     this.g.paused = !this.g.paused;
+    if (this.g.paused) {
+      this.renderKit('pause-kit');
+      $('pause-title').textContent = this.g.online ? 'MENU' : 'PAUSED';
+      $('pause-note').textContent = this.g.online ? "The match keeps running while this is open. You're still in play!" : '';
+    }
     $('pause').classList.toggle('open', this.g.paused);
     if (!this.g.paused) this.g.audio.unlock();
   }
@@ -371,8 +395,23 @@ export class Hud {
     // death overlay
     if (!p.alive && g.state === 'playing') {
       $('dead-t').textContent = `Back in ${Math.max(0, p.respawnT).toFixed(1)}s`;
-      $('dead-next').textContent = `Respawning with ${WEAPONS[g.pendingWeapon].name} + ${ABILITIES[g.pendingAbility].name}. Press 1 2 3 to switch gun.`;
+      $('dead-next').textContent = `Respawning with ${WEAPONS[g.pendingWeapon].name} + ${ABILITIES[g.pendingAbility].name}. Press 1 2 3 to switch gun, P to change ability.`;
     } else $('dead').classList.remove('show');
+
+    // ping to the other player (online only)
+    this.pingT -= dt;
+    if (this.pingT <= 0) {
+      this.pingT = 0.5;
+      const room: any = g.online ? g.peerRoom : null;
+      const pingEl = $('ping');
+      pingEl.hidden = !room || typeof room.ping !== 'number';
+      if (room && typeof room.ping === 'number') {
+        const ms = room.ping, kind = room.pathKind || '';
+        pingEl.className = 'pill ' + (!ms ? '' : ms < 60 ? 'good' : ms < 120 ? 'warn' : 'bad');
+        pingEl.innerHTML = `<b>${ms ? ms : '--'}</b><span>ms</span><em>${kind}</em>`;
+        pingEl.title = kind === 'relay' ? 'Round trip to the relay server' : 'Round trip to your friend';
+      }
+    }
 
     // clock + race
     const t = Math.ceil(g.matchT); $('clock').textContent = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;

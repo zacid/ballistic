@@ -43,7 +43,11 @@ if (mode === 'duel') {
     await A.waitForTimeout(500);
   }
 } else await A.waitForTimeout(12000);
-console.log('A', JSON.stringify(await st(A))); console.log('B', JSON.stringify(await st(B)));
+console.log('A', JSON.stringify(await st(A)));
+console.log('A ping pill:', await A.evaluate(() => { const p = document.getElementById('ping'); return p.hidden ? 'hidden' : p.textContent; }), '| B:', await B.evaluate(() => { const p = document.getElementById('ping'); return p.hidden ? 'hidden' : p.textContent; }));
+await B.keyboard.press('p'); await B.waitForTimeout(600); await B.click('#pause-kit button[data-a="bubble"]'); await B.waitForTimeout(300);
+console.log('B after picking Bubble in pause:', await B.evaluate(() => [window.__game.pendingAbility, document.getElementById('toast').textContent, document.querySelector('#pause-kit button.on[data-a]')?.textContent]));
+await B.setViewportSize({ width: 1100, height: 700 }); await B.screenshot({ path: 'shots/pause-kit.png' }); await B.keyboard.press('p'); console.log('B', JSON.stringify(await st(B)));
 await B.close();
 await A.waitForTimeout(8000);
 console.log('A after friend closed:', await A.evaluate(() => [window.__game.state, window.__game.endReason]));
