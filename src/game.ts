@@ -30,6 +30,8 @@ interface Fire { owner: number; x: number; z: number; y: number; t: number }
 interface Rail { owner: number; x0: number; z0: number; x1: number; z1: number; y: number; t: number; hit: Set<number> }
 
 const RESPAWN: Record<PickKind, number> = { health: 11, nades: 13, mega: 30 };
+/** How close you need to be to a gun pad to pick it up with E. */
+export const GUN_REACH = 1.3;
 const G = 24;
 const WIDS = Object.keys(WEAPONS) as WeaponId[];
 const BOT_ABILITIES = (gun: boolean) => (Object.keys(ABILITIES) as AbilityId[]).filter(a => !(gun && a === 'spikes'));
@@ -97,6 +99,8 @@ export class Game {
   ms = { shots: 0, hits: 0, dmg: 0, streak: 0, gunPops: {} as Record<string, number> };
   /** While you're dead the camera watches whoever popped you. */
   killCam = -1;
+  /** Set for a moment when you press E (or tap Swap): picks up the gun you're standing on. */
+  pickupReq = 0;
   ffa = new FfaDirector();
   private offer: StartOffer | null = null;
   private netT = 0;
@@ -228,6 +232,17 @@ export class Game {
     const d = Math.hypot(br.tx - b.x, br.tz - b.z) || 1, k = 0.25 + 0.6 * Math.min(1, this.player.kills / this.mode.limit);
     b.moveX = ((br.tx - b.x) / d) * k; b.moveZ = ((br.tz - b.z) / d) * k;
     b.fire = false; b.wantAbility = false;
+  }
+
+  /** The gun pad you could swap to right now (for the E prompt), if any. */
+  gunInReach() {
+    const p = this.player; if (!p?.alive || this.mode.gun) return null;
+    let best: Pickup | null = null, bd = GUN_REACH;
+    for (const q of this.pickups) {
+      if (q.kind !== 'weapon' || q.t > 0 || q.w === p.weapon) continue;
+      const d = Math.hypot(q.x - p.x, q.z - p.z); if (d < bd) { bd = d; best = q; }
+    }
+    return best;
   }
 
   /** Practice: number keys swap straight to a gun. */
@@ -1260,6 +1275,7 @@ export class Game {
   }
 
   stepPickups(dt: number) {
+    this.pickupReq = Math.max(0, this.pickupReq - dt);
     for (let i = this.pickups.length - 1; i >= 0; i--) {
       const p = this.pickups[i];
       if (p.ttl !== undefined) {
@@ -1274,10 +1290,14 @@ export class Game {
       item.visible = true;
       item.rotation.y += dt * 2; item.position.y = 0.75 + Math.sin(this.clock * 3 + p.x) * 0.12;
       for (const b of this.babos) {
-        if (!b.local || !b.alive || Math.hypot(b.x - p.x, b.z - p.z) > 0.95) continue;
+        if (!b.local || !b.alive) continue;
+        const d = Math.hypot(b.x - p.x, b.z - p.z);
+        if (d > (p.kind === 'weapon' && b.human ? GUN_REACH : 0.95)) continue;
         if (p.kind === 'weapon') {
           if (this.mode.waves && !b.human) continue;   // wave bots keep the guns they came with
           const w = WEAPONS[p.w!];
+          // people swap guns on purpose (E / Swap); topping up the gun you already hold stays automatic
+          if (b.human && b.weapon !== p.w) { if (!(b === this.player && this.pickupReq > 0)) continue; this.pickupReq = 0; }
           if (b.weapon === p.w) {
             const full = b.ammo >= w.clip && (b.reserve < 0 || b.reserve >= (w.ammo ?? 0) - w.clip);
             if (full) continue;

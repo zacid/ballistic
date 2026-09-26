@@ -150,6 +150,11 @@ body.touch #hints { display: none; }
 .tbtn { display: none; position: absolute; pointer-events: auto; width: 70px; height: 70px; border-radius: 50%; border: 4px solid var(--ink); background: var(--panel); font: 400 13px var(--display); touch-action: none; }
 body.touch .tbtn { display: grid; place-items: center; }
 #btn-nade { right: calc(22px + var(--sa-r)); bottom: calc(150px + var(--sa-b)); background: radial-gradient(circle at 35% 35%, #7ad48a, #2e7b3c); }
+#btn-pick { right: calc(102px + var(--sa-r)); bottom: calc(262px + var(--sa-b)); width: 64px; height: 64px; font-size: 12px; background: radial-gradient(circle at 35% 35%, #ffe08a, #e0a52a); }
+body.touch #btn-pick[hidden] { display: none; }
+#pickhint { position: absolute; left: 50%; bottom: calc(150px + var(--sa-b)); transform: translateX(-50%); padding: 5px 14px; font: 400 17px var(--display); white-space: nowrap; }
+#pickhint b { color: var(--c); }
+#pickhint[hidden] { display: none; }
 #btn-reload { right: calc(102px + var(--sa-r)); bottom: calc(190px + var(--sa-b)); width: 56px; height: 56px; font-size: 11px; }
 body.touch #player { bottom: calc(10px + var(--sa-b)); }
 body.touch #wpn { left: auto; right: calc(14px + var(--sa-r)); transform: none; bottom: calc(10px + var(--sa-b)); min-width: 200px; }
@@ -370,6 +375,7 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
   <div id="hurt"></div>
   <div id="dmgdir"></div>
   <div id="padlabels"></div>
+  <div id="pickhint" class="pill" hidden><kbd class="for-keys">E</kbd><span class="for-touch">Tap SWAP</span> pick up <b></b></div>
   <div id="overheads"></div>
   <div id="floaters"></div>
   <div id="feed"></div>
@@ -387,13 +393,14 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
     <div id="ab"><kbd>Space</kbd><span id="ab-name">Dash</span><em id="ab-cd">ready</em></div>
   </div>
   <div id="mode-tag"></div>
-  <div class="pill" id="hints"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> roll &nbsp; <kbd>Click</kbd> shoot &nbsp; <kbd>Right-click</kbd> / <kbd>G</kbd> grenade &nbsp; <kbd>Space</kbd> ability<br><kbd>R</kbd> reload &nbsp; <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> weapon &nbsp; <kbd>Tab</kbd> scores &nbsp; <kbd>F</kbd> perf &nbsp; <kbd>P</kbd> pause</div>
+  <div class="pill" id="hints"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> roll &nbsp; <kbd>Click</kbd> shoot &nbsp; <kbd>Right-click</kbd> / <kbd>G</kbd> grenade &nbsp; <kbd>Space</kbd> ability<br><kbd>R</kbd> reload &nbsp; <kbd>E</kbd> pick up gun &nbsp; <kbd>Tab</kbd> scores &nbsp; <kbd>F</kbd> perf &nbsp; <kbd>P</kbd> pause</div>
   <div id="sticks">
     <div class="stick" id="stick-move"><i></i></div>
     <div class="stick" id="stick-aim"><i></i></div>
   </div>
   <button class="tbtn" id="btn-nade">NADE</button>
   <button class="tbtn" id="btn-reload">RELOAD</button>
+  <button class="tbtn" id="btn-pick" hidden>SWAP</button>
   <button class="tbtn" id="btn-ab">ABILITY</button>
 </div>
 <div id="cross"></div>
@@ -440,11 +447,11 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
   </div>
   <div id="best"></div>
   <div id="arsenal" class="pill" hidden>
-    <div class="arsenal-head"><b>THE ARSENAL</b><span id="cards-label">Start with a pistol. Roll over a gun in the arena to grab it.</span></div>
+    <div class="arsenal-head"><b>THE ARSENAL</b><span id="cards-label">Start with a pistol. Stand on a gun in the arena and press E to grab it.</span></div>
     <div id="cards"></div>
     <div id="gun-info"></div>
   </div>
-  <div id="menu-hint"><span class="for-keys"><kbd>WASD</kbd> roll &middot; <kbd>Mouse</kbd> aim &middot; <kbd>Click</kbd> shoot &middot; <kbd>Right-click</kbd> grenade &middot; <kbd>Space</kbd> ability</span><span class="for-touch">Left thumb rolls &middot; right thumb aims and fires &middot; buttons for grenade and ability</span></div>
+  <div id="menu-hint"><span class="for-keys"><kbd>WASD</kbd> roll &middot; <kbd>Mouse</kbd> aim &middot; <kbd>Click</kbd> shoot &middot; <kbd>Right-click</kbd> grenade &middot; <kbd>Space</kbd> ability &middot; <kbd>E</kbd> pick up gun</span><span class="for-touch">Left thumb rolls &middot; right thumb aims and fires &middot; buttons for grenade and ability</span></div>
 </div>
 
 <div id="lobby" class="screen">

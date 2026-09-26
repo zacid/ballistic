@@ -121,7 +121,7 @@ export class Hud {
     $('tagline').textContent = gg ? 'Gun Game: every pop moves you up a weapon. Pop someone with spikes to win.'
       : sm === 'waves' ? `Hold the Fort: survive the waves from the keep.${this.g.saved.bestWave ? ` Best: wave ${this.g.saved.bestWave}.` : ''}`
       : `${['Four', 'Six', 'Eight'][[3, 5, 7].indexOf(this.g.saved.botCount)] ?? 'Eight'} toy balls, eight guns, one arena. First to 20 pops wins.`;
-    $('cards-label').textContent = gg ? 'Gun Game hands these out in order, rockets first.' : 'Start with a pistol. Roll over a gun in the arena to grab it.';
+    $('cards-label').textContent = gg ? 'Gun Game hands these out in order, rockets first.' : 'Start with a pistol. Stand on a gun in the arena and press E to grab it.';
     $('best').textContent = this.g.saved.best ? `Best finish: ${ordinal(this.g.saved.best)}` : '';
   }
 
@@ -405,7 +405,7 @@ export class Hud {
       grenade: 'Grenades bounce: keep moving when you hear one land.',
     };
     if (killer && byGun[killer.weapon]) tips.push(byGun[killer.weapon]!);
-    if (p.weapon === 'pistol' && !g.mode.gun) tips.push('You had the pistol. Roll over a gun pad to swap to something stronger.');
+    if (p.weapon === 'pistol' && !g.mode.gun) tips.push('You had the pistol. Stand on a gun pad and press E to swap to something stronger.');
     if (p.ability !== 'bubble') tips.push('Try Bubble as your Spacebar ability: it soaks 70% of damage for 2 s.');
     else if (p.abCool <= 0) tips.push('Your Bubble was ready. Hit Space when a fight starts, not after.');
     if (p.nades > 0 && !g.mode.gun) tips.push('You still had grenades: right-click (or G) to flush bots out of cover.');
@@ -461,6 +461,16 @@ export class Hud {
       n++;
     }
     for (let i = n; i < this.padEls.length; i++) this.padEls[i].style.display = 'none';
+  }
+
+  /** "E pick up Rockets" when you're standing on a gun you don't have. */
+  private pickShown: unknown = null;
+  private updatePickHint() {
+    const q = this.g.state === 'playing' ? this.g.gunInReach() : null;
+    if (q === this.pickShown) return;
+    this.pickShown = q;
+    $('pickhint').hidden = !q; ($('btn-pick') as HTMLButtonElement).hidden = !q;
+    if (q) { const w = WEAPONS[q.w!]; const el = $('pickhint'); el.style.setProperty('--c', hex(w.color)); el.querySelector('b')!.textContent = w.name + (w.ammo ? ` (${w.ammo} shots)` : ''); }
   }
 
   /** Results screen: your numbers for the match, with personal bests starred. */
@@ -567,6 +577,7 @@ export class Hud {
     }
     this.updateArcs(dt);
     this.updatePadLabels();
+    this.updatePickHint();
     // floaters
     for (let i = this.floaters.length - 1; i >= 0; i--) {
       const f = this.floaters[i]; f.t += dt;

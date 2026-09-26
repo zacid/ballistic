@@ -42,6 +42,7 @@ export class Input {
     canvas.addEventListener('touchcancel', e => this.touchEnd(e));
     $('btn-nade').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); this.nade(); });
     $('btn-ab').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); this.abilityQueued = true; });
+    $('btn-pick').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); this.g.pickupReq = 0.25; });
     $('btn-reload').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); if (this.g.player?.alive) this.g.reload(this.g.player); });
   }
 
@@ -63,6 +64,7 @@ export class Input {
         if (k === 'g' || k === 'q') this.nade();
         if (k === ' ' || k === 'shift') { e.preventDefault(); this.abilityQueued = true; }
         if (k === 'r' && this.g.player.alive) this.g.reload(this.g.player);
+        if (k === 'e') this.g.pickupReq = 0.25;
         if (this.g.mode.practice && k.length === 1 && k >= '1' && k <= '9') this.g.practiceGun(Number(k));
       }
       if (k === 'enter' && (this.g.state === 'menu' || (this.g.state === 'over' && !this.g.online))) this.g.start();

@@ -4,7 +4,7 @@ Rolling toy balls with guns. A top-down arena shooter in the spirit of Babo Viol
 
 - **Solo:** free-for-all against 3, 5 or 7 bots (first to 20 pops), Gun Game, or Hold the Fort.
 - **With a friend:** 1v1 (first to 10), the two of you against 5 bots (first team to 30), Gun Game 1v1, or Hold the Fort together, joined with an invite link. Rematch goes straight back in without the lobby.
-- Eight guns and grenades. Everyone starts with a pistol; the shotgun, chaingun, bouncer, flamethrower and lightning gun lie around the arena, and the rockets and railgun are power weapons with limited ammo in the most contested spots. Roll over a gun to swap to it; guns are dropped when their owner pops. Plus a Spacebar ability (dash, spikes, bubble, shockwave, mine).
+- Eight guns and grenades. Everyone starts with a pistol; the shotgun, chaingun, bouncer, flamethrower and lightning gun lie around the arena, and the rockets and railgun are power weapons with limited ammo in the most contested spots. Stand on a gun and press E (or tap Swap on a phone) to swap to it; rolling over the gun you already hold tops up its ammo. Guns are dropped when their owner pops. Plus a Spacebar ability (dash, spikes, bubble, shockwave, mine).
 - **Flamethrower:** short range, sets balls alight (afterburn) and leaves fire on the floor for a moment.
 - **Lightning gun:** locks onto the best target in a cone in front of you (no precise aim needed) and chains to up to two more balls nearby for 60% and 36% damage. Short range. (It replaced the gravity gun, which is retired but still in the code.)
 - **Practice range:** Practice Range on the menu: you and six target balls that never shoot back. Nothing can hurt you, 1-8 swap guns instantly, and the targets speed up as you go. Pop 20 as fast as you can; your best time is saved.
@@ -50,6 +50,7 @@ Everything is generated in code: no image, model or audio files. Sounds are synt
 | Grenade | Right click, G or Q |
 | Ability | Space or Shift |
 | Reload | R |
+| Pick up the gun you're standing on | E |
 | Scores | Tab |
 | Performance panel | F |
 | Pause / mute | P / M |
