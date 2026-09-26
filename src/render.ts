@@ -7,12 +7,12 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { HALF } from './arena';
 
 export type Quality = 'ultra' | 'high' | 'medium' | 'low';
-export interface QualityDef { label: string; msaa: number; ao: boolean; aoScale: number; bloom: boolean; shadows: boolean; pr: number; shadow: number }
+export interface QualityDef { label: string; msaa: number; ao: boolean; aoScale: number; bloom: boolean; shadows: boolean; pr: number; shadow: number; dynShadows: boolean }
 export const QUALITY: Record<Quality, QualityDef> = {
-  ultra: { label: 'Ultra', msaa: 4, ao: true, aoScale: 1, bloom: true, shadows: true, pr: 2, shadow: 2048 },
-  high: { label: 'High', msaa: 4, ao: true, aoScale: 0.5, bloom: true, shadows: true, pr: 1.5, shadow: 2048 },
-  medium: { label: 'Medium', msaa: 2, ao: false, aoScale: 0.5, bloom: true, shadows: true, pr: 1.25, shadow: 1024 },
-  low: { label: 'Low', msaa: 0, ao: false, aoScale: 0.5, bloom: false, shadows: true, pr: 1, shadow: 1024 },
+  ultra: { label: 'Ultra', msaa: 4, ao: true, aoScale: 1, bloom: true, shadows: true, pr: 2, shadow: 2048, dynShadows: true },
+  high: { label: 'High', msaa: 4, ao: true, aoScale: 0.5, bloom: true, shadows: true, pr: 1.5, shadow: 2048, dynShadows: true },
+  medium: { label: 'Medium', msaa: 2, ao: false, aoScale: 0.5, bloom: true, shadows: true, pr: 1.25, shadow: 1024, dynShadows: false },
+  low: { label: 'Low', msaa: 0, ao: false, aoScale: 0.5, bloom: false, shadows: true, pr: 1, shadow: 1024, dynShadows: false },
 };
 
 /** Live switches the perf panel can flip independently of the preset. */
@@ -95,8 +95,24 @@ export class Renderer {
     this.applyFlags();
   }
 
+  /**
+   * Medium/Low: the arena's shadows are drawn into the shadow map once (walls never move) and moving
+   * things get cheap blob shadows instead, so the shadow pass stops running every frame.
+   * High/Ultra: everything casts real shadows, redrawn each frame.
+   */
+  dynShadows = true;
+  onShadowMode: (dynamic: boolean) => void = () => {};
+  bakeShadows() { this.sun.shadow.needsUpdate = true; }
+
   applyFlags() {
     this.ao.enabled = this.flags.ao; this.bloom.enabled = this.flags.bloom;
+    const dyn = QUALITY[this.quality].dynShadows;
+    this.dynShadows = dyn;
+    this.sun.shadow.autoUpdate = dyn;
+    // static mode: the shadow camera only sees layer 1 (the arena's static casters)
+    if (dyn) this.sun.shadow.camera.layers.set(0); else this.sun.shadow.camera.layers.set(1);
+    this.sun.shadow.needsUpdate = true;
+    this.onShadowMode(dyn);
     if (this.sun.castShadow !== this.flags.shadows) this.sun.castShadow = this.flags.shadows;
     this.resize();
   }

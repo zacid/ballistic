@@ -109,6 +109,25 @@ kbd { display: inline-block; min-width: 20px; padding: 0 5px; border-radius: 5px
 #dead { position: absolute; left: 50%; top: 58%; transform: translate(-50%, 10px); text-align: center; opacity: 0; transition: opacity .2s, transform .2s; padding: 10px 22px; }
 #dead.show { opacity: 1; transform: translate(-50%, 0); }
 #dead-by { font: 400 24px var(--display); }
+#dead-cam { display: none; font: 800 10px var(--ui); letter-spacing: 2px; color: #ff8a8a; }
+#dead.cam #dead-cam { display: block; }
+#dead.cam { top: auto; bottom: calc(118px + var(--sa-b)); }
+/* hit direction: an arc at the screen edge pointing at whoever hit you */
+#dmgdir { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.dmgarc { position: absolute; left: 50%; top: 50%; width: min(56vh, 480px); height: min(56vh, 480px); margin: calc(min(56vh, 480px) / -2) 0 0 calc(min(56vh, 480px) / -2);
+  border-radius: 50%; border: 12px solid transparent; border-top-color: rgba(255, 70, 80, 0.9); filter: drop-shadow(0 0 6px rgba(255, 40, 60, 0.8)); opacity: 0; }
+/* gun pad labels */
+#padlabels { position: absolute; inset: 0; pointer-events: none; }
+.padlbl { position: absolute; left: 0; top: 0; transform-origin: 50% 100%; white-space: nowrap; font: 400 13px var(--display); padding: 1px 7px 2px; border-radius: 8px;
+  background: rgba(27,35,64,0.72); color: var(--c); will-change: transform; }
+.padlbl.cool { color: var(--muted); font-size: 11px; }
+/* end-of-match stats */
+#result-stats { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin: 12px 0 4px; }
+#result-stats .st { background: var(--panel); border: 3px solid var(--ink); border-radius: 12px; padding: 5px 12px 6px; min-width: 88px; }
+#result-stats .st b { display: block; font: 400 22px var(--display); color: var(--cream); }
+#result-stats .st span { font: 800 10px var(--ui); letter-spacing: .8px; color: var(--muted); }
+#result-stats .st.best { border-color: #ffd84a; }
+#result-stats .st.best span::after { content: ' \2605 BEST'; color: #ffd84a; }
 #dead-t { font-weight: 700; font-size: 17px; }
 #dead-next { font-weight: 600; font-size: 13px; color: var(--muted); }
 
@@ -259,6 +278,7 @@ table.board td i { display: inline-block; width: 12px; height: 12px; border-radi
 #perf canvas { display: block; margin-top: 6px; width: 180px; height: 40px; background: rgba(0,0,0,0.25); border-radius: 6px; }
 body.perf #feed { top: calc(224px + var(--sa-t)); }
 #settings { max-height: calc(100% - 80px); overflow-y: auto; }
+#settings .row.vol input { width: 130px; accent-color: var(--tangerine); }
 #ping { display: flex; align-items: center; gap: 6px; padding: 4px 12px; font: 700 14px var(--ui); font-variant-numeric: tabular-nums; }
 #ping b { font: 400 18px var(--display); }
 #ping em { font-style: normal; color: var(--muted); font-size: 12px; }
@@ -340,13 +360,15 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
 
 <div id="hud" class="hidden">
   <div id="hurt"></div>
+  <div id="dmgdir"></div>
+  <div id="padlabels"></div>
   <div id="overheads"></div>
   <div id="floaters"></div>
   <div id="feed"></div>
   <div id="top"><div class="pill" id="clock">4:00</div><div class="pill" id="race"></div><div class="pill" id="ping" hidden></div></div>
   <div id="mini"></div>
   <div id="banner"></div>
-  <div id="dead" class="pill"><div id="dead-by"></div><div id="dead-t"></div><div id="dead-next"></div></div>
+  <div id="dead" class="pill"><div id="dead-cam">KILLCAM</div><div id="dead-by"></div><div id="dead-t"></div><div id="dead-next"></div></div>
   <div id="player">
     <div class="pill" id="hp"><div id="hp-dot"></div><div><div id="hp-num">100</div><div class="bar"><div id="hp-fill"></div><div id="hp-over"></div></div></div></div>
   </div>
@@ -375,7 +397,8 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
   <div class="seg" id="quality-seg"></div>
   <h4>SOUND</h4>
   <div class="row"><label for="tog-mute">Mute (<kbd>M</kbd>)</label><input type="checkbox" id="tog-mute"></div>
-  <div class="row"><label for="tog-music">Music</label><input type="checkbox" id="tog-music"></div>
+  <div class="row vol"><label for="vol-sfx">Sound effects</label><input type="range" id="vol-sfx" min="0" max="100" step="5"></div>
+  <div class="row vol"><label for="vol-music">Music</label><input type="range" id="vol-music" min="0" max="100" step="5"></div>
   <div class="row"><label for="tog-perf">Performance panel (<kbd>F</kbd>)</label><input type="checkbox" id="tog-perf"></div>
   <h4>DEBUG SWITCHES</h4>
   <div class="row"><label for="dbg-ao">Ambient occlusion</label><input type="checkbox" id="dbg-ao"></div>
@@ -458,6 +481,7 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
 <div id="result" class="screen">
   <h1 id="result-title">WINNER!</h1>
   <div id="result-sub" class="shadowtext"></div>
+  <div id="result-stats"></div>
   <table class="board"><thead><tr><th>#</th><th>BALL</th><th id="result-mid">POPS</th><th>POPPED</th></tr></thead><tbody id="result-table"></tbody></table>
   <button class="big-btn" id="again">PLAY AGAIN</button>
   <button class="ghost-btn" id="to-lobby" hidden>BACK TO LOBBY</button>

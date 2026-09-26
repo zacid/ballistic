@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CLIMB, Arena, CELL } from './arena';
 import { Audio } from './audio';
-import { Babo, buildGun, makeBabo, setBoss, setTeamRing, setWeapon, updateBaboVisual } from './babo';
+import { Babo, buildGun, makeBabo, setBlobShadows, setBoss, setTeamRing, setWeapon, updateBaboVisual } from './babo';
 import {
   ABILITIES, AbilityId, BALL, BOSS, BOT_NAMES, BURN, GRAV, MINE, GUN_RESPAWN, MAP_GUNS, START_WEAPON, COLORS, DASH, DIFFICULTY, Difficulty, GRENADE, LADDER, MapChoice, ArenaSize, ARENA_SIZES, MAPS, MODES, ModeDef, ModeId,
   PICKABLE, SPIKES, WAVE, WAVES, WEAPONS, WeaponId,
@@ -42,7 +42,7 @@ const STORE = 'ballistic.v1';
 export interface Saved {
   weapon: WeaponId; ability: AbilityId; color: number; difficulty: Difficulty; quality: Quality | 'auto';
   muted: boolean; best?: number; perf?: boolean; nick: string;
-  soloMode: 'solo' | 'gungame' | 'waves'; map: MapChoice; arenaSize: ArenaSize; botCount: number; coopBots: number; ffaSkill?: number; bestWave?: number; music?: boolean; v2?: boolean;
+  soloMode: 'solo' | 'gungame' | 'waves'; map: MapChoice; arenaSize: ArenaSize; botCount: number; coopBots: number; ffaSkill?: number; bestWave?: number; music?: boolean; sfxVol: number; musicVol: number; records?: { streak?: number; dmg?: number; acc?: number }; v2?: boolean;
 }
 function load(): Saved {
   let s: Partial<Saved> = {};
@@ -51,7 +51,7 @@ function load(): Saved {
     // v2: Adaptive became the default (once), since it's the one that suits Hold the Fort
     weapon: s.weapon ?? 'shotgun', ability: s.ability ?? 'dash', color: s.color ?? 0, difficulty: (s as any).v2 ? s.difficulty ?? 'adaptive' : 'adaptive',
     quality: s.quality ?? 'auto', muted: !!s.muted, best: s.best, perf: s.perf, nick: s.nick ?? '',
-    soloMode: s.soloMode ?? 'solo', map: s.map && s.map in MAPS ? s.map : 'random', arenaSize: s.arenaSize ?? 'medium', botCount: s.botCount ?? 7, coopBots: s.coopBots ?? 5, bestWave: s.bestWave, music: s.music ?? true, v2: true,
+    soloMode: s.soloMode ?? 'solo', map: s.map && s.map in MAPS ? s.map : 'random', arenaSize: s.arenaSize ?? 'medium', botCount: s.botCount ?? 7, coopBots: s.coopBots ?? 5, bestWave: s.bestWave, music: s.music ?? true, sfxVol: s.sfxVol ?? 1, musicVol: s.musicVol ?? (s.music === false ? 0 : 0.8), v2: true,
   };
 }
 
@@ -93,6 +93,10 @@ export class Game {
   /** Hold the Fort state (the host runs it; guests mirror it from the host state). */
   wv = { n: 0, lives: 0, breakT: 0, queue: 0, total: 0, spawnT: 0, boss: -1, out: new Set<number>(), cleared: false };
   director = new Director();
+  /** Your numbers this match, for the results screen. */
+  ms = { shots: 0, hits: 0, dmg: 0, streak: 0, gunPops: {} as Record<string, number> };
+  /** While you're dead the camera watches whoever popped you. */
+  killCam = -1;
   ffa = new FfaDirector();
   private offer: StartOffer | null = null;
   private netT = 0;
@@ -112,9 +116,10 @@ export class Game {
 
   constructor(canvas: HTMLCanvasElement) {
     this.r = new Renderer(canvas);
+    this.r.onShadowMode = dyn => setBlobShadows(!dyn);
     this.fx = new Fx(this.r.scene);
     this.audio.setMuted(this.saved.muted);
-    this.audio.music.setEnabled(this.saved.music !== false);
+    this.audio.setSfxVolume(this.saved.sfxVol); this.audio.music.setVolume(this.saved.musicVol);
     this.pendingWeapon = this.saved.weapon;
     this.pendingAbility = this.saved.ability;
     const tg = new THREE.BoxGeometry(0.07, 0.07, 1); tg.translate(0, 0, -0.5);
@@ -135,9 +140,10 @@ export class Game {
   save() { try { localStorage.setItem(STORE, JSON.stringify(this.saved)); } catch { /* storage unavailable */ } }
 
   newArena(size: number, map: MapId = 'random') {
-    if (this.arena) { this.r.scene.remove(this.arena.group); }
+    if (this.arena) { this.r.scene.remove(this.arena.group); this.arena.dispose(); }
     this.arena = new Arena(this.seed, size, map);
     this.r.scene.add(this.arena.group);
+    this.r.bakeShadows();
     this.fx.floorAt = (x, z) => this.arena.floorAt(x, z);
     for (const p of this.pickups) this.r.scene.remove(p.mesh);
     this.pickups = this.arena.pickups.map((s, i) => {
@@ -232,6 +238,7 @@ export class Game {
     const humans = this.babos.filter(b => b.human).length;
     this.wv = { n: 0, lives: humans > 1 ? WAVES.livesDuo : WAVES.lives, breakT: WAVES.firstBreak, queue: 0, total: 0, spawnT: 0, boss: -1, out: new Set(), cleared: false };
     this.director.reset(this.saved.difficulty);
+    this.ms = { shots: 0, hits: 0, dmg: 0, streak: 0, gunPops: {} }; this.killCam = -1;
     // solo matches against bots (not Hold the Fort, which has its own director): size bots to you
     // matches with bots (not Hold the Fort, which has its own director): size the bots to each human.
     // The host runs it (bots live there); a guest mirrors the numbers from the host state.
@@ -281,13 +288,13 @@ export class Game {
   private stepWaves(dt: number) {
     const w = this.wv;
     if (w.breakT > 0) { w.breakT -= dt; if (w.breakT <= 0) this.startWave(w.n + 1); return; }
-    const bots = this.babos.filter(b => !b.human);
-    const alive = bots.filter(b => b.alive).length;
-    const humans = this.babos.filter(b => b.human), dir = this.director;
+    // this runs 120 times a second: count in place rather than building lists
+    const humans = this.humansList, dir = this.director;
+    let alive = 0, slot: Babo | null = null;
+    for (const b of this.babos) if (!b.human) { if (b.alive) alive++; else if (!slot) slot = b; }
     dir.watch(dt, humans);
     w.spawnT -= dt;
     if (w.queue > 0 && w.spawnT <= 0 && alive < dir.maxAlive(w.n, humans.length)) {
-      const slot = bots.find(b => !b.alive);
       if (slot) {
         const bossWave = w.n % BOSS.every === 0;
         const makeBoss = bossWave && w.boss < 0 && w.queue === w.total;
@@ -303,8 +310,13 @@ export class Game {
       this.onWaveCleared();
     }
     // everyone is down with no lives left
-    if (humans.every(b => !b.alive && w.out.has(b.id))) this.end(`The fort fell on wave ${w.n}`);
+    let standing = false; for (const b of humans) if (b.alive || !w.out.has(b.id)) { standing = true; break; }
+    if (!standing) this.end(`The fort fell on wave ${w.n}`);
   }
+
+  /** The humans in this match (fixed once it starts). */
+  private humansCache: Babo[] = []; private humansFor: Babo[] | null = null;
+  private get humansList() { if (this.humansFor !== this.babos) { this.humansFor = this.babos; this.humansCache = this.babos.filter(b => b.human); } return this.humansCache; }
 
   private startWave(n: number) {
     const w = this.wv;
@@ -358,10 +370,14 @@ export class Game {
 
   /** Co-op: the defender who's carrying draws more of the fire. */
   get waveLeader(): number {
-    const hs = this.babos.filter(b => b.human && b.alive);
-    if (hs.length < 2) return -1;
-    hs.sort((a, b) => (b.kills - b.deaths * 2) - (a.kills - a.deaths * 2));
-    return (hs[0].kills - hs[0].deaths * 2) - (hs[1].kills - hs[1].deaths * 2) >= 4 ? hs[0].id : -1;
+    // called for every bot's every target check: no sorting or lists, just the top two scores
+    let a: Babo | null = null, b: Babo | null = null;
+    const sc = (x: Babo) => x.kills - x.deaths * 2;
+    for (const h of this.humansList) {
+      if (!h.alive) continue;
+      if (!a || sc(h) > sc(a)) { b = a; a = h; } else if (!b || sc(h) > sc(b)) b = h;
+    }
+    return a && b && sc(a) - sc(b) >= 4 ? a.id : -1;
   }
 
   private checkLimit() {
@@ -411,6 +427,7 @@ export class Game {
       if (b.ability !== this.pendingAbility) { b.ability = this.pendingAbility; b.abCool = 0; }
     }
     b.x = best.x; b.z = best.z; b.vx = b.vz = 0; b.y = b.gy = this.arena.floorAt(best.x, best.z); b.vy = 0;
+    if (b === this.player) this.killCam = -1;
     b.hp = b.maxHp; b.alive = true; b.root.visible = true; b.nades = this.mode.gun ? 0 : GRENADE.start; b.cool = 0.3; b.streak = 0; b.abT = 0;
     b.spawnShield = initial ? 0 : 1.3; b.lastHitBy = -1; b.brain = undefined;
     if (!initial) this.spawnFx(b);
@@ -450,6 +467,7 @@ export class Game {
     const sy = b.y + 0.55;
     let mx = b.x + b.aimX * 0.85, mz = b.z + b.aimZ * 0.85;
     if (this.arena.raycast(b.x, b.z, mx, mz, sy) >= 0) { mx = b.x; mz = b.z; }
+    if (b === this.player) this.ms.shots += w.kind === 'rail' ? 1 : w.pellets;
     if (w.kind === 'rail') { this.fireRail(b, mx, sy, mz); }
     else for (let i = 0; i < w.pellets; i++) {
       const a = base + (w.pellets > 1 ? ((i + Math.random()) / w.pellets - 0.5) * w.spread : (Math.random() - 0.5) * w.spread);
@@ -488,6 +506,7 @@ export class Game {
       const u = ((v.x - x0) * sdx + (v.z - z0) * sdz) / l2; if (u < 0 || u > 1) continue;
       const px = x0 + sdx * u, pz = z0 + sdz * u;
       if (Math.hypot(v.x - px, v.z - pz) > v.rad + 0.1) continue;
+      if (b === this.player && !hitSet.size) this.ms.hits++;
       this.hit(b, v, w.damage, b.aimX * w.knock, b.aimZ * w.knock, 2); hitSet.add(v.id);
       for (let k = 0; k < 6; k++) this.fx.bit(v.x, v.y + 0.5, v.z, b.aimX * 6 + (Math.random() - 0.5) * 4, 2 + Math.random() * 3, b.aimZ * 6 + (Math.random() - 0.5) * 4, 0.07, v.color, 0.7);
     }
@@ -620,7 +639,8 @@ export class Game {
   }
 
   private stepMines(dt: number) {
-    for (const m of [...this.mines]) {
+    for (let i = this.mines.length - 1; i >= 0; i--) {
+      const m = this.mines[i];
       m.arm -= dt; m.life -= dt;
       const light = m.mesh.userData.light as THREE.Mesh;
       light.visible = m.arm > 0 ? Math.sin(this.clock * 30) > 0 : Math.sin(this.clock * 6) > 0.6;
@@ -695,6 +715,7 @@ export class Game {
   hit(att: Babo, v: Babo, dmg: number, kx: number, kz: number, vy = 0, flag = 0) {
     if (!att.local || !v.alive || !this.canDamage(att, v)) return;
     if (this.mode.waves && !att.human && v.human) dmg *= this.director.botDamage(this.wv.n);
+    if (att === this.player && v !== att && v.spawnShield <= 0) this.ms.dmg += dmg * (v.abT > 0 && v.ability === 'bubble' ? 0.3 : 1);
     if (this.ffa.has(v.id) && !att.human) { dmg *= this.ffa.damage(v.id); if (v.spawnShield <= 0) this.ffa.tookDamage(v.id, dmg); }
     if (this.ffa.has(att.id) && v !== att && v.spawnShield <= 0 && !v.human) this.ffa.dealtDamage(att.id, dmg);
     if (flag & 1) { v.burnT = BURN.t; v.burnBy = att.id; }
@@ -718,6 +739,7 @@ export class Game {
     if (v.spawnShield > 0) return;
     v.hp -= dmg; if (dmg >= 1) v.hurtT = 0.12;
     if (by !== v.id) { v.lastHitBy = by; v.lastHitT = this.clock; }
+    if (v.isPlayer && by >= 0 && by !== v.id && dmg >= 1 && this.babos[by]) this.hud.damageFrom(this.babos[by]);
     if (v.isPlayer) { this.hud.hurt(Math.min(1, dmg / 40)); this.r.addShake(Math.min(0.5, dmg / 60)); this.audio.play('hurt'); }
     if (v.hp <= 0) {
       let killer = by;
@@ -754,6 +776,8 @@ export class Game {
       if (drops.length >= GUN_RESPAWN.maxDrops) this.removePickup(drops[0]);
       this.addGun(v.weapon, v.x, v.z, `${v.id}:${v.deaths}`);
     }
+    if (k === this.player && k !== v) { this.ms.gunPops[k.weapon] = (this.ms.gunPops[k.weapon] ?? 0) + 1; this.ms.streak = Math.max(this.ms.streak, k.streak); }
+    if (v === this.player) this.killCam = k && k !== v ? k.id : -1;
     if (v.isPlayer) this.hud.onPlayerDeath(k && k !== v ? k : null);
     if (v.gy < 0.1) this.arena.splat(v.x, v.z, 1.1 + Math.random() * 0.4, v.color);
     this.audio.play('pop', v.x, v.z);
@@ -799,7 +823,7 @@ export class Game {
   }
 
   /** Explosion visuals everywhere; damage only where the owner is simulated. */
-  explode(x: number, z: number, owner: number, r: number, dmg: number, knock: number, authoritative: boolean, y = this.arena.floorAt(x, z)) {
+  explode(x: number, z: number, owner: number, r: number, dmg: number, knock: number, authoritative: boolean, y = this.arena.floorAt(x, z)): number {
     this.fx.explosion(x, z, r, y);
     if (y < 0.1) this.arena.scorch(x, z, r * 0.7);
     this.audio.play('boom', x, z);
@@ -807,7 +831,8 @@ export class Game {
     if (!reducedMotion) this.r.addShake(Math.max(0, 0.7 - pd / 20));
     for (const n of this.nades) if (Math.hypot(n.x - x, n.z - z) < r * 0.6) n.fuse = Math.min(n.fuse, 0.08);
     const att = this.babos[owner];
-    if (!authoritative || !att) return;
+    if (!authoritative || !att) return 0;
+    let hits = 0;
     for (const b of this.babos) {
       if (!b.alive) continue;
       const dx = b.x - x, dz = b.z - z, d = Math.hypot(dx, dz);
@@ -816,8 +841,10 @@ export class Game {
       if (d > 0.3 && this.arena.raycast(x - (dx / d) * 0.05, z - (dz / d) * 0.05, b.x, b.z, Math.max(y, b.y) + 0.5, true) >= 0) continue;
       const k = Math.max(0, 1 - Math.max(0, d - b.rad) / r);
       const nx = d > 0.01 ? dx / d : Math.random() - 0.5, nz = d > 0.01 ? dz / d : Math.random() - 0.5;
+      if (b !== att && this.canDamage(att, b)) hits++;
       this.hit(att, b, dmg * Math.pow(k, 0.7) * (b.id === owner ? 0.45 : 1), nx * knock * k, nz * knock * k, 6 * k);
     }
+    return hits;
   }
 
   // ---------- abilities ----------
@@ -1068,7 +1095,8 @@ export class Game {
             const back = t >= 0 && !victim ? 0.15 : 0;
             const ex = hx - (s.vx / l) * back, ez = hz - (s.vz / l) * back;
             if (victim && shooter) this.hit(shooter, victim, w.damage, (s.vx / l) * w.knock, (s.vz / l) * w.knock);
-            this.explode(ex, ez, s.owner, w.splash!.radius, w.splash!.damage, w.splash!.knock, true, s.y - 0.55);
+            const blasted = this.explode(ex, ez, s.owner, w.splash!.radius, w.splash!.damage, w.splash!.knock, true, s.y - 0.55);
+            if (s.owner === this.player.id && (victim || blasted)) this.ms.hits++;
             if (this.online) this.net.send({ k: 'boom', o: s.owner, x: r2(ex), z: r2(ez), r: w.splash!.radius, y: r2(s.y - 0.55) });
           }
           if (s.mesh) this.r.scene.remove(s.mesh);
@@ -1076,6 +1104,7 @@ export class Game {
         }
       } else if (ended) {
         if (victim) {
+          if (!s.cosmetic && s.owner === this.player.id) this.ms.hits++;
           if (!s.cosmetic && shooter) {
             const travelled = s.dist + Math.sqrt(l2) * t;
             const range = w.speed * w.life;
@@ -1139,7 +1168,8 @@ export class Game {
   }
 
   stepPickups(dt: number) {
-    for (const p of [...this.pickups]) {
+    for (let i = this.pickups.length - 1; i >= 0; i--) {
+      const p = this.pickups[i];
       if (p.ttl !== undefined) {
         p.ttl -= dt;
         if (p.ttl <= 0) { this.removePickup(p); continue; }
@@ -1489,8 +1519,9 @@ export class Game {
     this.arena.flushPaint(this.r.renderer, raw);
     if (inMatch && this.player) {
       const p = this.player;
-      this.input.aimWorld(this.aimPoint);
-      this.r.follow(p.x, p.z, this.aimPoint.x, this.aimPoint.z, raw);
+      const kc = !p.alive && this.killCam >= 0 ? this.babos[this.killCam] : null;
+      if (kc && kc.alive) this.r.follow(kc.x, kc.z, kc.x + kc.aimX * 2, kc.z + kc.aimZ * 2, raw);
+      else { this.input.aimWorld(this.aimPoint); this.r.follow(p.x, p.z, this.aimPoint.x, this.aimPoint.z, raw); }
       this.audio.listener.x = p.x; this.audio.listener.z = p.z;
     }
     this.updateMusic();
@@ -1618,6 +1649,7 @@ function gunPickupMesh(w: WeaponId) {
 
 const mineBodyGeo = new THREE.CylinderGeometry(0.28, 0.32, 0.12, 16);
 const mineLightGeo = new THREE.SphereGeometry(0.07, 8, 6);
+const mineRingGeo = new THREE.RingGeometry(0.34, 0.4, 20).rotateX(-Math.PI / 2);
 const mineMat = new THREE.MeshStandardMaterial({ color: 0x3a3f55, roughness: 0.5, metalness: 0.3 });
 const mineLightMats = new Map<number, THREE.Material>();
 function mineMesh(color: number) {
@@ -1626,7 +1658,7 @@ function mineMesh(color: number) {
   let lm = mineLightMats.get(color);
   if (!lm) { lm = new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(2.2), toneMapped: false }); mineLightMats.set(color, lm); }
   const light = new THREE.Mesh(mineLightGeo, lm); light.position.y = 0.14; g.add(light); g.userData.light = light;
-  const ring = new THREE.Mesh(new THREE.RingGeometry(0.34, 0.4, 20).rotateX(-Math.PI / 2), lm); ring.position.y = 0.02; g.add(ring);
+  const ring = new THREE.Mesh(mineRingGeo, lm); ring.position.y = 0.02; g.add(ring);
   return g;
 }
 

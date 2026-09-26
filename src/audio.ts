@@ -5,6 +5,8 @@ export class Audio {
   ctx: AudioContext | null = null;
   master: GainNode | null = null;
   muted = false;
+  sfxVol = 1;
+  private out: GainNode | null = null;
   listener = { x: 0, z: 0 };
   private noiseBuf: AudioBuffer | null = null;
   private last: Record<string, number> = {};
@@ -16,17 +18,20 @@ export class Audio {
     if (!C) return;
     const ctx: AudioContext = new C();
     this.ctx = ctx;
-    this.master = ctx.createGain(); this.master.gain.value = this.muted ? 0 : 0.38;
+    // sound effects -> compressor -> out; music -> out (kept off the compressor so explosions don't duck it)
+    this.out = ctx.createGain(); this.out.gain.value = this.muted ? 0 : 1; this.out.connect(ctx.destination);
+    this.master = ctx.createGain(); this.master.gain.value = 0.38 * this.sfxVol;
     const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 6;
-    this.master.connect(comp); comp.connect(ctx.destination);
+    this.master.connect(comp); comp.connect(this.out);
     const n = ctx.sampleRate;
     this.noiseBuf = ctx.createBuffer(1, n, n);
     const d = this.noiseBuf.getChannelData(0);
     for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
-    this.music.attach(ctx, this.master, this.noiseBuf);
+    this.music.attach(ctx, this.out, this.noiseBuf);
   }
 
-  setMuted(m: boolean) { this.muted = m; if (this.master) this.master.gain.value = m ? 0 : 0.38; }
+  setMuted(m: boolean) { this.muted = m; if (this.out) this.out.gain.value = m ? 0 : 1; }
+  setSfxVolume(v: number) { this.sfxVol = v; if (this.master) this.master.gain.value = 0.38 * v; }
 
   private tone(type: OscillatorType, f0: number, f1: number, dur: number, vol: number, delay = 0) {
     const c = this.ctx!, t = c.currentTime + delay;
@@ -46,7 +51,7 @@ export class Audio {
   }
 
   play(name: string, x?: number, z?: number, vol = 1) {
-    if (!this.ctx || this.muted) return;
+    if (!this.ctx || this.muted || this.sfxVol <= 0) return;
     let v = vol;
     if (x !== undefined && z !== undefined) {
       const d = Math.hypot(x - this.listener.x, z - this.listener.z);

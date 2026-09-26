@@ -30,6 +30,8 @@ The soundtrack is generated live by a small step sequencer (`src/music.ts`): squ
 
 Shots skim up onto raised floors on their own (there's no vertical aim), so only walls and battlements give cover.
 
+**While playing:** a red arc at the screen edge points at whoever just hit you; when you're popped, the camera follows your killer until you respawn ("Popped by X with the Y"); gun pads near you are labelled, and power weapons show when they're back. The results screen shows your pops, accuracy, damage, best streak and top gun, with personal bests starred. Settings has separate sound-effect and music volume.
+
 Everything is generated in code: no image, model or audio files. Sounds are synthesised with Web Audio.
 
 ## Controls
@@ -117,6 +119,12 @@ The relay uses one SQLite-backed Durable Object per room with the WebSocket Hibe
 - The host (whoever created the link) runs the bots, the clock and the score.
 - State travels as a small snapshot about 20 times a second, plus a rolling log of recent events so a dropped message is recovered by the next one.
 
+## Performance notes
+
+- On Medium and Low quality the arena's shadows are drawn into the shadow map once per match (walls never move) and balls get soft blob shadows, so the shadow pass no longer runs every frame. High and Ultra keep fully dynamic shadows.
+- Each arena frees its GPU memory when the next one is built, and balls share their geometry, so memory stays flat from match to match.
+- The per-step hot paths (wave director, target picking, pickups, mines) avoid building throwaway arrays, to keep garbage-collection hitches out of the frame times.
+
 ## Code map
 
 | File | What it does |
@@ -137,7 +145,7 @@ The relay uses one SQLite-backed Durable Object per room with the WebSocket Hibe
 
 ## Tests
 
-`tests/solo.mjs` fast-forwards bot-only matches (Gun Game on Fort and Towers, free-for-all) and checks for errors. `tests/waves.mjs` and `tests/waves-duo.mjs` cover Hold the Fort solo and online; `tests/newguns.mjs` and `tests/weapons-duo.mjs` cover the flamethrower, gravity gun and mines offline and online; `tests/guns.mjs` checks gun pickups, power-weapon ammo and the lingering railgun beam; `tests/adaptive-ffa.mjs` and `tests/adaptive-coop.mjs` check the Free-for-all and online versions; `tests/director.mjs` checks the difficulty climbs for a strong player and falls for a weak one. `tests/gg.mjs` plays online Gun Game 1v1 through the local servers, checks the ladder syncs, and tests the rematch.
+`tests/solo.mjs` fast-forwards bot-only matches (Gun Game on Fort and Towers, free-for-all) and checks for errors. `tests/waves.mjs` and `tests/waves-duo.mjs` cover Hold the Fort solo and online; `tests/qol.mjs` covers the hit arcs, killcam, pad labels, results stats, volume sliders, shadow modes and memory; `tests/newguns.mjs` and `tests/weapons-duo.mjs` cover the flamethrower, gravity gun and mines offline and online; `tests/guns.mjs` checks gun pickups, power-weapon ammo and the lingering railgun beam; `tests/adaptive-ffa.mjs` and `tests/adaptive-coop.mjs` check the Free-for-all and online versions; `tests/director.mjs` checks the difficulty climbs for a strong player and falls for a weak one. `tests/gg.mjs` plays online Gun Game 1v1 through the local servers, checks the ladder syncs, and tests the rematch.
 
 `tests/p2p.mjs` runs two headless browsers against a local PeerJS server, creates an invite, joins it, plays a duel and checks that kills and disconnects sync:
 

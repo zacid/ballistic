@@ -269,6 +269,19 @@ export class Arena {
     this.homeSpawns = this.spawns;
   }
 
+  /** Free the GPU memory this arena holds (geometry, materials, the painted floor). */
+  dispose() {
+    const seen = new Set<unknown>();
+    this.group.traverse(o => {
+      const m = o as THREE.Mesh;
+      if (m.geometry && !seen.has(m.geometry)) { seen.add(m.geometry); m.geometry.dispose(); }
+      const mats = m.material ? (Array.isArray(m.material) ? m.material : [m.material]) : [];
+      for (const mt of mats) { if (seen.has(mt)) continue; seen.add(mt); (mt as THREE.MeshStandardMaterial).map?.dispose(); mt.dispose(); }
+      if ((o as THREE.InstancedMesh).isInstancedMesh) (o as THREE.InstancedMesh).dispose();
+    });
+    this.floorTex?.dispose();
+  }
+
   private build() {
     // Blocks: one rounded cube per stacked unit, instanced.
     let count = 0;
@@ -280,7 +293,7 @@ export class Arena {
     // Shadows come from a plain-box proxy (12 tris vs 300 per cube). It draws nothing
     // in the main pass (no colour, no depth); the shadow pass only needs its depth.
     const proxy = new THREE.InstancedMesh(new THREE.BoxGeometry(CELL * 0.98, CELL * 0.98, CELL * 0.98), new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false }), count);
-    proxy.castShadow = true;
+    proxy.castShadow = true; proxy.layers.enable(1);
     const m = new THREE.Matrix4(); const c = new THREE.Color(); const r = rng(this.seed + 11);
     let n = 0;
     for (let j = 0; j < this.n; j++) for (let i = 0; i < this.n; i++) {
@@ -314,7 +327,7 @@ export class Arena {
     }
     if (wedges.length) {
       const rm = new THREE.Mesh(mergeGeometries(wedges)!, new THREE.MeshStandardMaterial({ color: 0xd2bd98, roughness: 0.7 }));
-      rm.castShadow = true; rm.receiveShadow = true; this.group.add(rm);
+      rm.castShadow = true; rm.receiveShadow = true; rm.layers.enable(1); this.group.add(rm);
     }
 
     // Floor: a painted canvas so splats can be drawn onto it permanently.

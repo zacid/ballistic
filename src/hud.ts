@@ -48,7 +48,9 @@ export class Hud {
     $('quit').addEventListener('click', () => { this.g.paused = false; this.toMenu(); });
     $('gear').addEventListener('click', () => { $('settings').classList.toggle('open'); this.syncSettings(); });
     $('tog-mute').addEventListener('change', e => this.g.setMuted((e.target as HTMLInputElement).checked));
-    $('tog-music').addEventListener('change', e => { const on = (e.target as HTMLInputElement).checked; this.g.saved.music = on; this.g.save(); this.g.audio.music.setEnabled(on); });
+    $('vol-sfx').addEventListener('input', e => { const v = Number((e.target as HTMLInputElement).value) / 100; this.g.saved.sfxVol = v; this.g.audio.setSfxVolume(v); this.g.save(); });
+    $('vol-sfx').addEventListener('change', () => { this.g.audio.unlock(); this.g.audio.play('pickup'); });
+    $('vol-music').addEventListener('input', e => { const v = Number((e.target as HTMLInputElement).value) / 100; this.g.saved.musicVol = v; this.g.audio.music.setVolume(v); this.g.save(); });
     // browsers only allow sound after a click or key press: start the menu music on the first one
     const wake = () => this.g.audio.unlock();
     addEventListener('pointerdown', wake, { once: true }); addEventListener('keydown', wake, { once: true });
@@ -194,7 +196,8 @@ export class Hud {
     ($('dbg-ao') as HTMLInputElement).checked = f.ao; ($('dbg-bloom') as HTMLInputElement).checked = f.bloom; ($('dbg-shadows') as HTMLInputElement).checked = f.shadows;
     for (const b of Array.from($('res-seg').children) as HTMLElement[]) b.classList.toggle('on', Number(b.dataset.v) === f.res);
     ($('tog-mute') as HTMLInputElement).checked = this.g.saved.muted;
-    ($('tog-music') as HTMLInputElement).checked = this.g.saved.music !== false;
+    ($('vol-sfx') as HTMLInputElement).value = String(Math.round(this.g.saved.sfxVol * 100));
+    ($('vol-music') as HTMLInputElement).value = String(Math.round(this.g.saved.musicVol * 100));
   }
 
   pickAbility(a: AbilityId, silent = true) {
@@ -340,6 +343,7 @@ export class Hud {
     $('result-mid').textContent = g.mode.gun ? 'LEVEL' : 'POPS';
     $('result-table').innerHTML = ranked.map((b, i) =>
       `<tr class="${b.isPlayer ? 'me' : ''}"><td>${i + 1}</td><td><i style="background:${hex(b.color)}"></i>${esc(this.g.nameOf(b))}</td><td>${g.mode.gun ? lvl(b) : b.kills}</td><td>${b.deaths}</td></tr>`).join('');
+    this.renderStats();
     setTimeout(() => $('result').classList.add('open'), 700);
   }
 
@@ -363,8 +367,75 @@ export class Hud {
 
   onPlayerDeath(killer: Babo | null) {
     this.deathKiller = killer ? killer.name : '';
-    $('dead-by').innerHTML = killer ? `Popped by <b style="color:${hex(killer.color)}">${esc(this.g.nameOf(killer))}</b>` : 'Popped yourself';
+    const w = killer ? WEAPONS[killer.weapon] : null;
+    $('dead-by').innerHTML = killer ? `Popped by <b style="color:${hex(killer.color)}">${esc(this.g.nameOf(killer))}</b>${w && !w.hidden ? ` <small>with the <b style="color:${hex(w.color)}">${w.name}</b></small>` : ''}` : 'Popped yourself';
     $('dead').classList.add('show');
+    $('dead').classList.toggle('cam', !!killer);
+  }
+
+  /** A red arc at the screen edge pointing at whoever just hit you. One per attacker, refreshed on each hit. */
+  private arcs = new Map<number, { el: HTMLElement; t: number; ang: number }>();
+  damageFrom(att: Babo) {
+    let a = this.arcs.get(att.id);
+    if (!a) { const el = document.createElement('div'); el.className = 'dmgarc'; $('dmgdir').appendChild(el); a = { el, t: 0, ang: 0 }; this.arcs.set(att.id, a); }
+    a.t = 0.9;
+  }
+  private updateArcs(dt: number) {
+    const g = this.g, p = g.player; if (!p) return;
+    const cam = g.r.camera;
+    this.v.set(p.x, p.y + 0.5, p.z).project(cam); const px = this.v.x * innerWidth, py = -this.v.y * innerHeight;
+    for (const [id, a] of this.arcs) {
+      if (a.t <= 0) continue;
+      a.t -= dt;
+      const att = g.babos[id];
+      if (att?.alive) { this.v.set(att.x, att.y + 0.5, att.z).project(cam); a.ang = Math.atan2(-this.v.y * innerHeight - py, this.v.x * innerWidth - px); }
+      a.el.style.opacity = String(Math.max(0, Math.min(1, a.t / 0.45)));
+      a.el.style.transform = `rotate(${a.ang + Math.PI / 2}rad)`;
+    }
+  }
+
+  /** Names over the gun pads near you (power weapons also show when they're back). */
+  private padEls: HTMLElement[] = [];
+  private updatePadLabels() {
+    const g = this.g, p = g.player, cam = g.r.camera;
+    let n = 0;
+    if (p && g.state !== 'over') for (const pk of g.pickups) {
+      if (pk.kind !== 'weapon' || !pk.mesh.visible || n >= 24) continue;
+      if (Math.hypot(pk.x - p.x, pk.z - p.z) > 13) continue;
+      const w = WEAPONS[pk.w!];
+      if (pk.t > 0 && !w.ammo) continue;
+      this.v.set(pk.x, pk.mesh.position.y + 1.35, pk.z).project(cam);
+      if (this.v.z > 1 || Math.abs(this.v.x) > 1.05 || Math.abs(this.v.y) > 1.05) continue;
+      let el = this.padEls[n];
+      if (!el) { el = document.createElement('div'); el.className = 'padlbl'; $('padlabels').appendChild(el); this.padEls[n] = el; }
+      const txt = pk.t > 0 ? `${w.name} ${Math.ceil(pk.t)}s` : w.name;
+      if (el.textContent !== txt) el.textContent = txt;
+      el.classList.toggle('cool', pk.t > 0);
+      el.style.setProperty('--c', hex(w.color));
+      el.style.display = '';
+      el.style.transform = `translate(${((this.v.x + 1) / 2) * innerWidth}px, ${((1 - this.v.y) / 2) * innerHeight}px) translate(-50%, -100%)`;
+      n++;
+    }
+    for (let i = n; i < this.padEls.length; i++) this.padEls[i].style.display = 'none';
+  }
+
+  /** Results screen: your numbers for the match, with personal bests starred. */
+  private renderStats() {
+    const g = this.g, ms = g.ms, p = g.player;
+    const acc = ms.shots ? Math.round((100 * ms.hits) / ms.shots) : 0;
+    let top = '', topN = 0;
+    for (const [w, c] of Object.entries(ms.gunPops)) if (c > topN) { topN = c; top = w; }
+    const rec = g.saved.records ?? (g.saved.records = {});
+    const best = (key: 'streak' | 'dmg' | 'acc', v: number, min = 0) => { if (v > min && v > (rec[key] ?? 0)) { rec[key] = v; return true; } return false; };
+    const bStreak = best('streak', ms.streak, 1), bDmg = best('dmg', Math.round(ms.dmg), 100), bAcc = ms.shots >= 40 && best('acc', acc, 0);
+    g.save();
+    const tile = (label: string, val: string, isBest = false) => `<div class="st${isBest ? ' best' : ''}"><b>${val}</b><span>${label}</span></div>`;
+    const tw = top ? WEAPONS[top as WeaponId] : null;
+    $('result-stats').innerHTML =
+      tile('POPS', String(p.kills)) + tile('POPPED', String(p.deaths)) +
+      tile('ACCURACY', ms.shots ? `${acc}%` : '-', !!bAcc) + tile('DAMAGE', String(Math.round(ms.dmg)), bDmg) +
+      tile('BEST STREAK', String(ms.streak), bStreak) +
+      (tw ? `<div class="st"><b style="color:${hex(tw.color)}">${tw.name}</b><span>TOP GUN &middot; ${topN} POP${topN === 1 ? '' : 'S'}</span></div>` : '');
   }
 
   floater(x: number, z: number, n: number) {
@@ -450,6 +521,8 @@ export class Hud {
       o.fill.style.transform = `scaleX(${Math.max(0, Math.min(1.5, b.hp / b.maxHp))})`;
       o.fill.classList.toggle('over', b.hp > b.maxHp);
     }
+    this.updateArcs(dt);
+    this.updatePadLabels();
     // floaters
     for (let i = this.floaters.length - 1; i >= 0; i--) {
       const f = this.floaters[i]; f.t += dt;
@@ -500,7 +573,7 @@ export class Hud {
       const out = g.mode.waves && g.wv.out.has(p.id);
       $('dead-t').textContent = out ? (g.wv.breakT > 0 ? 'Back any second' : 'Out until the next wave') : `Back in ${Math.max(0, p.respawnT).toFixed(1)}s`;
       $('dead-next').textContent = `Respawning with ${g.mode.gun ? WEAPONS[LADDER[Math.min(p.tier, LADDER.length - 1)]].name : WEAPONS[START_WEAPON].name} + ${ABILITIES[g.pendingAbility].name}. P to change ability.`;
-    } else $('dead').classList.remove('show');
+    } else $('dead').classList.remove('show', 'cam');
 
     // ping to the other player (online only)
     this.pingT -= dt;

@@ -14,6 +14,7 @@ export class Input {
   private ray = new THREE.Raycaster();
   private plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.55);
   private hit = new THREE.Vector3();
+  private aimTmp = new THREE.Vector3();
   // touch sticks
   private mv = { id: -1, ox: 0, oy: 0, x: 0, y: 0 };
   private am = { id: -1, ox: 0, oy: 0, x: 0, y: 0 };
@@ -101,7 +102,7 @@ export class Input {
       if (k.has('d') || k.has('arrowright')) mx += 1;
     }
     b.moveX = mx; b.moveZ = mz;
-    const a = new THREE.Vector3(); this.aimWorld(a);
+    const a = this.aimWorld(this.aimTmp);
     const dx = a.x - b.x, dz = a.z - b.z, l = Math.hypot(dx, dz);
     if (l > 0.2) { b.aimX = dx / l; b.aimZ = dz / l; }
     b.aimDist = l;

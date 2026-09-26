@@ -195,7 +195,7 @@ export interface Babo {
   hurtT: number;
   spawnShield: number;
   // visuals
-  root: THREE.Group; ball: THREE.Mesh; gun: THREE.Group; ring: THREE.Mesh; mat: THREE.MeshStandardMaterial;
+  root: THREE.Group; ball: THREE.Mesh; gun: THREE.Group; ring: THREE.Mesh; blob: THREE.Mesh; mat: THREE.MeshStandardMaterial;
   spikes: THREE.Mesh; bubble: THREE.Mesh;
   recoilZ: number;
   // networking
@@ -204,18 +204,23 @@ export interface Babo {
   brain?: any;
 }
 
+// shared by every ball (a fresh copy per ball per match used to pile up in GPU memory)
+const ballGeo = new THREE.SphereGeometry(BALL.radius, 32, 20);
+const ringGeo = new THREE.RingGeometry(BALL.radius * 1.15, BALL.radius * 1.4, 32).rotateX(-Math.PI / 2);
+
 export function makeBabo(id: number, name: string, color: number, weapon: WeaponId, isPlayer: boolean, ability: AbilityId = 'dash'): Babo {
   const root = new THREE.Group();
   const mat = new THREE.MeshStandardMaterial({ map: skin(color), roughness: 0.22, emissive: 0xffffff, emissiveIntensity: 0 });
-  const ball = new THREE.Mesh(new THREE.SphereGeometry(BALL.radius, 32, 20), mat);
+  const ball = new THREE.Mesh(ballGeo, mat);
   ball.castShadow = true; ball.receiveShadow = true;
   root.add(ball);
   const gun = buildGun(weapon, color);
   root.add(gun);
-  const ring = new THREE.Mesh(new THREE.RingGeometry(BALL.radius * 1.15, BALL.radius * 1.4, 32).rotateX(-Math.PI / 2),
+  const ring = new THREE.Mesh(ringGeo,
     new THREE.MeshBasicMaterial({ color: isPlayer ? 0xffffff : color, transparent: true, opacity: isPlayer ? 0.85 : 0.35, depthWrite: false }));
   ring.position.y = -BALL.radius + 0.03;
   root.add(ring);
+  const blob = new THREE.Mesh(blobGeo, blobMat); blob.position.y = -BALL.radius + 0.02; blob.renderOrder = -1; root.add(blob);
   const sp = spikes(); ball.add(sp);
   const bubble = new THREE.Mesh(bubbleGeo, bubbleMat); bubble.visible = false; root.add(bubble);
   return {
@@ -226,7 +231,7 @@ export function makeBabo(id: number, name: string, color: number, weapon: Weapon
     ability, abCool: 0, abT: 0, abCount: 0, spikeHits: new Set(),
     aimX: 1, aimZ: 0, moveX: 0, moveZ: 0, fire: false, wantAbility: false,
     kills: 0, deaths: 0, tier: 0, tierKills: 0, won: false, gy: 0, aimDist: 6, burnT: 0, burnBy: -1, flungT: 0, flungBy: -1, gravT: 0, reserve: -1, rad: BALL.radius, maxHp: BALL.hp, boss: false, semiLock: false, spikeCd: new Map(), streak: 0, lastHitBy: -1, lastHitT: 0, hurtT: 0, spawnShield: 0,
-    root, ball, gun, ring, mat, spikes: sp, bubble, recoilZ: 0,
+    root, ball, gun, ring, blob, mat, spikes: sp, bubble, recoilZ: 0,
     net: [], netFire: false, netReload: false,
   };
 }
@@ -245,6 +250,12 @@ export function setBoss(b: Babo, on: boolean) {
   b.boss = on; b.rad = BALL.radius * s; b.maxHp = on ? BOSS.hp : BALL.hp;
   b.root.scale.setScalar(s);
 }
+
+/** Cheap round shadows under balls, used when the quality preset doesn't redraw real shadows every frame. */
+const blobGeo = new THREE.CircleGeometry(BALL.radius * 1.05, 24).rotateX(-Math.PI / 2);
+const blobMat = new THREE.MeshBasicMaterial({ color: 0x1b2340, transparent: true, opacity: 0.3, depthWrite: false });
+blobMat.visible = false;
+export function setBlobShadows(on: boolean) { blobMat.visible = on; }
 
 export function setTeamRing(b: Babo, color: number, opacity: number) {
   const m = b.ring.material as THREE.MeshBasicMaterial; m.color.set(color); m.opacity = opacity;
@@ -269,6 +280,9 @@ export function updateBaboVisual(b: Babo, dt: number) {
   const firing = b.local ? b.fire && b.reloadT <= 0 : b.netFire && !b.netReload;
   if (spin) spin.rotation.z += dt * (firing ? 40 : 3);
   b.ring.position.y = -BALL.radius - (b.y - b.gy) / (b.rad / BALL.radius) + 0.03;
+  b.blob.position.y = b.ring.position.y - 0.01;
+  // blob shadow: shrinks and fades as the ball leaves the ground
+  const air = Math.min(1, (b.y - b.gy) / 3); b.blob.scale.setScalar(1 - air * 0.45);
   b.hurtT = Math.max(0, b.hurtT - dt);
   b.mat.emissiveIntensity = b.hurtT > 0 ? b.hurtT * 5 : b.spawnShield > 0 ? 0.25 + 0.2 * Math.sin(performance.now() / 60) : 0;
   // abilities

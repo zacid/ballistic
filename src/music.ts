@@ -65,6 +65,8 @@ export class Music {
   }
 
   setEnabled(on: boolean) { this.enabled = on; this.apply(); }
+  /** 0..1 from the settings slider. */
+  setVolume(v: number) { this.vol = 0.6 * v; this.enabled = v > 0; this.apply(); }
 
   private apply() {
     if (!this.out || !this.ctx) return;
