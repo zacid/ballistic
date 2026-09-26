@@ -493,7 +493,77 @@ export class Arena {
     return this.top(bi, bj) <= this.level(ai, aj) + 0.7;
   }
 
-  path(x0: number, z0: number, x1: number, z1: number): Spot[] {
+  /**
+   * Big balls (the wave bosses) are wider than a cell, so they can't use one-cell gaps. They path over
+   * 2x2 blocks instead: a block is usable when all four cells are floor you can roll between, and the
+   * waypoints are the block centres (the shared corner of the four cells).
+   */
+  private blockOk(i: number, j: number) {
+    if (i < 0 || j < 0 || i + 1 >= this.n || j + 1 >= this.n) return false;
+    for (const [a, b] of [[i, j], [i + 1, j], [i, j + 1], [i + 1, j + 1]]) if (this.h[this.idx(a, b)]) return false;
+    return this.walkable(i, j, i + 1, j) && this.walkable(i + 1, j, i, j) && this.walkable(i, j, i, j + 1) && this.walkable(i, j + 1, i, j)
+      && this.walkable(i + 1, j, i + 1, j + 1) && this.walkable(i + 1, j + 1, i + 1, j) && this.walkable(i, j + 1, i + 1, j + 1) && this.walkable(i + 1, j + 1, i, j + 1);
+  }
+  private corner(i: number) { return this.center(i) + CELL / 2; }
+  /** Nearest usable 2x2 block to a point (searching a few cells out). */
+  private nearBlock(x: number, z: number, reach = 3): number {
+    const ci = Math.round((x + this.half) / CELL) - 1, cj = Math.round((z + this.half) / CELL) - 1;
+    let best = -1, bd = 1e9;
+    for (let dj = -reach; dj <= reach; dj++) for (let di = -reach; di <= reach; di++) {
+      const i = ci + di, j = cj + dj; if (!this.blockOk(i, j)) continue;
+      const d = Math.hypot(this.corner(i) - x, this.corner(j) - z); if (d < bd) { bd = d; best = this.idx(i, j); }
+    }
+    return best;
+  }
+  /** Centre of the nearest spot a big ball fits in (for getting a stuck boss free). */
+  openSpot(x: number, z: number): Spot | null {
+    const k = this.nearBlock(x, z, 4); return k < 0 ? null : { x: this.corner(k % this.n), z: this.corner((k / this.n) | 0) };
+  }
+
+  /** Is there room for a ball of radius r at this point? */
+  roomy(x: number, z: number, r: number, y = 0) {
+    for (let a = 0; a < 8; a++) { const t = (a / 8) * Math.PI * 2; if (this.solidAt(x + Math.cos(t) * r, z + Math.sin(t) * r, y)) return false; }
+    return !this.solidAt(x, z, y);
+  }
+  private widePath(x0: number, z0: number, x1: number, z1: number, rad: number): Spot[] {
+    const start = this.nearBlock(x0, z0), goal = this.nearBlock(x1, z1, 4);
+    if (start < 0 || goal < 0) return [];
+    const N = this.n * this.n, g = new Float32Array(N).fill(Infinity), f = new Float32Array(N).fill(Infinity), from = new Int32Array(N).fill(-1);
+    const closed = new Uint8Array(N), inOpen = new Uint8Array(N), open: number[] = [start];
+    const ti = goal % this.n, tj = (goal / this.n) | 0;
+    g[start] = 0; f[start] = Math.hypot(ti - (start % this.n), tj - ((start / this.n) | 0)); inOpen[start] = 1;
+    let guard = 0;
+    while (open.length && guard++ < 3000) {
+      let bi = 0; for (let k = 1; k < open.length; k++) if (f[open[k]] < f[open[bi]]) bi = k;
+      const cur = open[bi]; open[bi] = open[open.length - 1]; open.pop(); inOpen[cur] = 0;
+      if (cur === goal) break;
+      closed[cur] = 1;
+      const cx = cur % this.n, cy = (cur / this.n) | 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        if (!dx && !dy) continue;
+        const nx = cx + dx, ny = cy + dy;
+        if (!this.blockOk(nx, ny)) continue;
+        if (dx && dy && (!this.blockOk(cx + dx, cy) || !this.blockOk(cx, cy + dy))) continue;
+        const nk = this.idx(nx, ny); if (closed[nk]) continue;
+        const ng = g[cur] + (dx && dy ? 1.414 : 1);
+        if (ng < g[nk]) { g[nk] = ng; f[nk] = ng + Math.hypot(ti - nx, tj - ny); from[nk] = cur; if (!inOpen[nk]) { open.push(nk); inOpen[nk] = 1; } }
+      }
+    }
+    if (from[goal] < 0 && goal !== start) return [];
+    const out: Spot[] = []; let k = goal;
+    while (k !== start && k >= 0) { out.push({ x: this.corner(k % this.n), z: this.corner((k / this.n) | 0) }); k = from[k]; }
+    out.reverse();
+    const smooth: Spot[] = []; let ax = x0, az = z0;
+    for (let n = 0; n < out.length; n++) {
+      const nxt = out[n + 1];
+      if (nxt && this.floorAt(nxt.x, nxt.z) === this.floorAt(ax, az) && this.clearPath(ax, az, nxt.x, nxt.z, rad, this.floorAt(ax, az))) continue;
+      smooth.push(out[n]); ax = out[n].x; az = out[n].z;
+    }
+    return smooth;
+  }
+
+  path(x0: number, z0: number, x1: number, z1: number, rad = 0.5): Spot[] {
+    if (rad > 0.6) return this.widePath(x0, z0, x1, z1, rad);
     const si = this.cellOf(x0), sj = this.cellOf(z0), ti = this.cellOf(x1), tj = this.cellOf(z1);
     if (ti < 0 || tj < 0 || ti >= this.n || tj >= this.n || si < 0 || sj < 0 || si >= this.n || sj >= this.n) return [];
     if (this.h[this.idx(ti, tj)]) return [];

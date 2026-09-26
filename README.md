@@ -23,6 +23,7 @@ Defend the keep on the Fort map against waves of bots. Each wave brings more of 
 
 - **Aim assist (vs bots):** on by default. If a bot you can see is within about 12 degrees of your crosshair, your aim is pulled most of the way onto it. It never applies against your friend in 1v1 modes. Toggle it in settings.
 - **Tips:** the respawn screen shows one practical hint based on what just happened (the gun that got you, your ability, your grenades).
+- **Big balls get about:** bosses are wider than a cell, so they path over 2x2 blocks (never through one-cell gaps), only charge straight at you when they fit, spawn where there's room, can climb ramps onto platforms, and back out to open space if they ever get wedged.
 - **Mini boss:** Hold the Fort sends a smaller boss on wave 3 (and 8, 13...) as well as the big one every 5th wave. Defenders start with a chaingun.
 
 ### Adaptive difficulty
@@ -153,7 +154,7 @@ The relay uses one SQLite-backed Durable Object per room with the WebSocket Hibe
 
 ## Tests
 
-`tests/solo.mjs` fast-forwards bot-only matches (Gun Game on Fort and Towers, free-for-all) and checks for errors. `tests/waves.mjs` and `tests/waves-duo.mjs` cover Hold the Fort solo and online; `tests/qol.mjs` covers the hit arcs, killcam, pad labels, results stats, volume sliders, shadow modes and memory; `tests/newguns.mjs` and `tests/weapons-duo.mjs` cover the flamethrower, gravity gun and mines offline and online; `tests/guns.mjs` checks gun pickups, power-weapon ammo and the lingering railgun beam; `tests/adaptive-ffa.mjs` and `tests/adaptive-coop.mjs` check the Free-for-all and online versions; `tests/director.mjs` checks the difficulty climbs for a strong player and falls for a weak one. `tests/gg.mjs` plays online Gun Game 1v1 through the local servers, checks the ladder syncs, and tests the rematch.
+`tests/solo.mjs` fast-forwards bot-only matches (Gun Game on Fort and Towers, free-for-all) and checks for errors. `tests/waves.mjs` and `tests/waves-duo.mjs` cover Hold the Fort solo and online; `tests/boss-stuck.mjs` measures how long bosses spend wedged (before vs after the wide-ball pathing); `tests/qol.mjs` covers the hit arcs, killcam, pad labels, results stats, volume sliders, shadow modes and memory; `tests/newguns.mjs` and `tests/weapons-duo.mjs` cover the flamethrower, gravity gun and mines offline and online; `tests/guns.mjs` checks gun pickups, power-weapon ammo and the lingering railgun beam; `tests/adaptive-ffa.mjs` and `tests/adaptive-coop.mjs` check the Free-for-all and online versions; `tests/director.mjs` checks the difficulty climbs for a strong player and falls for a weak one. `tests/gg.mjs` plays online Gun Game 1v1 through the local servers, checks the ladder syncs, and tests the rematch.
 
 `tests/p2p.mjs` runs two headless browsers against a local PeerJS server, creates an invite, joins it, plays a duel and checks that kills and disconnects sync:
 

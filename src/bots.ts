@@ -67,7 +67,9 @@ export function thinkBot(g: Game, b: Babo, dt: number, diff: { react: number; ai
   const wantHealth = b.hp < 45;
   // a gun lying close by is worth breaking off a pistol duel for
   const grab = b.weapon === START_WEAPON && !g.mode.gun && !g.mode.waves && dist > 3.5 && !!nearestPickup(g, b, ['weapon'], 8);
-  if (tAlive && visible && !wantHealth && !grab) {
+  // big balls only charge straight at you when they actually fit through the gap; otherwise they path round
+  const fits = b.rad <= 0.6 || !tAlive || g.arena.clearPath(b.x, b.z, t.x, t.z, b.rad * 0.95, b.y);
+  if (tAlive && visible && !wantHealth && !grab && fits) {
     const dx = (t.x - b.x) / dist, dz = (t.z - b.z) / dist;
     const pref = w.kind === 'melee' ? 0 : w.preferred;
     let fwd = dist > pref + 1.2 ? 1 : dist < pref - 1.2 ? -0.8 : 0;
@@ -97,7 +99,7 @@ export function thinkBot(g: Game, b: Babo, dt: number, diff: { react: number; ai
         }
         gx = br.goalX; gz = br.goalZ;
       }
-      br.path = g.arena.path(b.x, b.z, gx, gz);
+      br.path = g.arena.path(b.x, b.z, gx, gz, b.rad);
     }
     while (br.path.length && Math.hypot(br.path[0].x - b.x, br.path[0].z - b.z) < 0.7) br.path.shift();
     const wp = br.path[0];
@@ -135,7 +137,12 @@ export function thinkBot(g: Game, b: Babo, dt: number, diff: { react: number; ai
   // stuck detection
   const sp = Math.hypot(b.vx, b.vz);
   if (ml > 0.01 && sp < 0.8) br.stuckT += dt; else br.stuckT = Math.max(0, br.stuckT - dt);
-  if (br.stuckT > 0.8) { br.stuckT = 0; br.path = []; br.repath = 0; const a = Math.random() * Math.PI * 2; b.vx += Math.cos(a) * 3; b.vz += Math.sin(a) * 3; }
+  if (br.stuckT > 0.8) {
+    br.stuckT = 0; br.path = []; br.repath = 0;
+    const open = b.rad > 0.6 ? g.arena.openSpot(b.x, b.z) : null;
+    if (open) { br.path = [open]; br.repath = 0.8; }   // big ball wedged: back out to somewhere it fits first
+    else { const a = Math.random() * Math.PI * 2; b.vx += Math.cos(a) * 3; b.vz += Math.sin(a) * 3; }
+  }
   b.moveX = mx; b.moveZ = mz;
 
   // --- aim

@@ -448,7 +448,10 @@ export class Game {
     const pool = this.mode.teams && b.human && this.map !== 'random' && home.length ? home
       : this.mode.waves && !b.human && home.length ? this.arena.spawns.filter(s => !home.includes(s))
       : this.arena.spawns;
-    let best = pool[0];
+    // bosses need room to spawn in (they're wider than a cell)
+    const roomy = b.rad > 0.6 ? pool.filter(s => this.arena.roomy(s.x, s.z, b.rad + 0.05, this.arena.floorAt(s.x, s.z))) : pool;
+    const spots = roomy.length ? roomy : pool;
+    let best = spots[0];
     if (initial && pool === this.arena.homeSpawns) {
       best = pool[(b.id * 7) % pool.length];
     } else if (initial) {
@@ -459,7 +462,7 @@ export class Game {
     } else {
       let bestScore = -1;
       for (let k = 0; k < 40; k++) {
-        const s = pool[(Math.random() * pool.length) | 0];
+        const s = spots[(Math.random() * spots.length) | 0];
         let near = 1e9;
         for (const o of this.babos) if (o !== b && o.alive && this.canDamage(o, b)) near = Math.min(near, Math.hypot(o.x - s.x, o.z - s.z));
         if (near > bestScore) { bestScore = near; best = s; }
@@ -1127,7 +1130,8 @@ export class Game {
     }
     if (!dashing && !flung && sp > BALL.maxSpeed) { const k = Math.exp(-1.6 * dt); b.vx *= k; b.vz *= k; }
     b.x += b.vx * dt; b.z += b.vz * dt;
-    const hit = this.arena.collide(b, b.rad, b.y);
+    // a big ball's leading edge reaches the top of a ramp before its centre does, so let it step up a little higher
+    const hit = this.arena.collide(b, b.rad, b.y + Math.max(0, b.rad - BALL.radius) * 0.6);
     // follow the ground: roll up ramps, drop off ledges
     const gy = this.arena.floorAt(b.x, b.z); b.gy = gy;
     if (b.y < gy) { b.y = gy; if (b.vy < 0) b.vy = 0; }
