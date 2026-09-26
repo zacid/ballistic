@@ -35,7 +35,7 @@ console.log('flamethrower:', JSON.stringify(flame));
 await setup();
 const grav = await p.evaluate(() => {
   const g = window.__game, me = g.player, v = g.babos[1], s = window.__spot;
-  const pk = g.pickups.find(p => p.w === 'gravity'); me.x = pk.x; me.z = pk.z; me.y = me.gy = g.arena.floorAt(pk.x, pk.z); g.step(1 / 120);
+  me.weapon = 'gravity'; me.ammo = 1;   // retired from the pads, still works
   me.x = s.x; me.z = s.z; me.y = me.gy = 0; me.aimX = 1; me.aimZ = 0; me.isPlayer = false; me.vx = me.vz = 0;
   v.alive = true; v.root.visible = true; v.hp = 100; v.spawnShield = 0; v.x = s.x + 7; v.z = s.z; v.y = v.gy = 0; v.vx = v.vz = 0;
   const d0 = v.x - me.x;

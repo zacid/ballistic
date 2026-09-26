@@ -87,6 +87,16 @@ function gunGeo(id: WeaponId, accent: number) {
       part(new THREE.CylinderGeometry(0.045, 0.07, 0.5, 10), GUNMETAL, 0, 0, 0.5, H),
       part(new THREE.TorusGeometry(0.07, 0.022, 6, 12), brass, 0, 0, 0.75),
     ])! };
+  } else if (id === 'lightning') {
+    const copper = new THREE.Color(0xd98a3a), tip = new THREE.Color(0xc8ecff);
+    const coils: THREE.BufferGeometry[] = [];
+    for (let i = 0; i < 4; i++) coils.push(part(new THREE.TorusGeometry(0.085, 0.022, 6, 12), copper, 0, 0.02, 0.28 + i * 0.1));
+    out = { body: mergeGeometries([
+      part(new THREE.BoxGeometry(0.2, 0.18, 0.36), acc, 0, 0, 0.02),
+      part(new THREE.CylinderGeometry(0.045, 0.045, 0.5, 10), GUNMETAL, 0, 0.02, 0.42, H),
+      ...coils,
+      part(new THREE.SphereGeometry(0.075, 12, 8), tip, 0, 0.02, 0.7),
+    ])! };
   } else if (id === 'gravity') {
     const orb = new THREE.Color(0x9fe6ff);
     const prongs: THREE.BufferGeometry[] = [];

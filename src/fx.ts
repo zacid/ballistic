@@ -2,6 +2,7 @@ import * as THREE from 'three';
 
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _p = new THREE.Vector3(), _c = new THREE.Color();
 const UP = new THREE.Vector3(0, 1, 0);
+const _fwd = new THREE.Vector3(0, 0, 1);
 
 interface Bit { x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number; max: number; size: number; color: number; grav: number; spin: number; bounce: boolean }
 interface Puff { x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number; max: number; size: number; grow: number }
@@ -109,7 +110,44 @@ export class Fx {
     }
   }
 
+  // ---------- lightning: jagged additive segments, one instanced draw ----------
+  private boltMesh: THREE.InstancedMesh | null = null;
+  private bolts: { ax: number; ay: number; az: number; bx: number; by: number; bz: number; life: number; max: number; w: number; color: number }[] = [];
+  /** A crackling bolt from a to b: a few jittered segments plus a thin bright core. */
+  bolt(ax: number, ay: number, az: number, bx: number, by: number, bz: number, color: number, width = 1) {
+    if (!this.boltMesh) {
+      const g = new THREE.BoxGeometry(1, 1, 1); g.translate(0, 0, 0.5);
+      this.boltMesh = new THREE.InstancedMesh(g, new THREE.MeshBasicMaterial({ toneMapped: false, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }), 160);
+      this.boltMesh.frustumCulled = false; this.boltMesh.count = 0; this.boltMesh.setColorAt(0, new THREE.Color());
+      this.group.add(this.boltMesh);
+    }
+    const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz) || 0.01, px = -dz / len, pz = dx / len;
+    const n = Math.max(3, Math.min(8, Math.round(len / 0.9)));
+    let x0 = ax, y0 = ay, z0 = az;
+    for (let i = 1; i <= n; i++) {
+      const t = i / n, j = i === n ? 0 : (Math.random() - 0.5) * Math.min(0.9, len * 0.18);
+      const x1 = ax + dx * t + px * j, z1 = az + dz * t + pz * j, y1 = ay + (by - ay) * t + (i === n ? 0 : (Math.random() - 0.5) * 0.25);
+      if (this.bolts.length >= 160) this.bolts.shift();
+      this.bolts.push({ ax: x0, ay: y0, az: z0, bx: x1, by: y1, bz: z1, life: 0.11, max: 0.11, w: width, color });
+      if (Math.random() < 0.6) this.glow(x1, y1, z1, (Math.random() - 0.5) * 2, Math.random() * 1.5, (Math.random() - 0.5) * 2, 0.08 + Math.random() * 0.06, color, 0.14, 0);
+      x0 = x1; y0 = y1; z0 = z1;
+    }
+  }
+
   update(dt: number) {
+    if (this.boltMesh) {
+      let n = 0;
+      for (let i = this.bolts.length - 1; i >= 0; i--) {
+        const b = this.bolts[i]; b.life -= dt;
+        if (b.life <= 0) { this.bolts.splice(i, 1); continue; }
+        const k = b.life / b.max, len = Math.hypot(b.bx - b.ax, b.by - b.ay, b.bz - b.az) || 0.01;
+        _p.set(b.ax, b.ay, b.az); _s.set(b.bx - b.ax, b.by - b.ay, b.bz - b.az).normalize();
+        _q.setFromUnitVectors(_fwd, _s);
+        const w = (0.07 + 0.1 * k) * b.w; _s.set(w, w, len);
+        _m.compose(_p, _q, _s); this.boltMesh.setMatrixAt(n, _m); this.boltMesh.setColorAt(n, _c.set(b.color).multiplyScalar(1.5 + 2.5 * k)); n++;
+      }
+      this.boltMesh.count = n; this.boltMesh.instanceMatrix.needsUpdate = true; if (this.boltMesh.instanceColor) this.boltMesh.instanceColor.needsUpdate = true;
+    }
     // bits
     let n = 0;
     for (let i = this.bits.length - 1; i >= 0; i--) {
@@ -171,5 +209,5 @@ export class Fx {
     }
   }
 
-  clear() { this.bits.length = 0; this.puffs.length = 0; this.glows.length = 0; }
+  clear() { this.bits.length = 0; this.puffs.length = 0; this.glows.length = 0; this.bolts.length = 0; }
 }

@@ -185,7 +185,13 @@ body.touch #wpn { left: auto; right: calc(14px + var(--sa-r)); transform: none; 
 .stat { display: grid; grid-template-columns: 74px 1fr; align-items: center; gap: 8px; font-size: 11px; font-weight: 800; letter-spacing: .6px; color: var(--muted); margin-top: 3px; }
 .stat i { height: 8px; border-radius: 4px; background: var(--ink); overflow: hidden; display: block; }
 .stat b { display: block; height: 100%; background: var(--tangerine); border-radius: 4px; }
-#abilities { display: grid; grid-template-columns: repeat(5, 150px); gap: 10px; }
+#setup2 { display: flex; gap: 28px; flex-wrap: wrap; justify-content: center; align-items: flex-start; }
+#abilities button { padding: 6px 12px; white-space: nowrap; }
+#abilities button small { font-size: 11px; font-weight: 800; opacity: .7; margin-left: 4px; }
+#ab-info { margin-top: 6px; max-width: 560px; min-height: 18px; font-size: 13px; font-weight: 600; color: var(--cream); text-shadow: 0 1px 0 var(--ink); }
+#menu-links { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 6px; }
+#menu-links .ghost-btn { margin-top: 8px; font-size: 15px; padding: 5px 16px; }
+#arsenal[hidden] { display: none; }
 .chip { text-align: left; background: var(--panel); border: 3px solid var(--ink); border-radius: 14px; padding: 8px 10px 9px; cursor: pointer; display: grid; gap: 2px; transition: transform .12s; box-shadow: 0 4px 0 rgba(0,0,0,0.3); }
 .chip:hover { transform: translateY(-2px); }
 .chip.on { border-color: var(--tangerine); box-shadow: 0 4px 0 rgba(0,0,0,0.3), 0 0 0 3px var(--ink); }
@@ -300,7 +306,7 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
 #loading.done { opacity: 0; pointer-events: none; }
 
 @media (max-width: 760px) {
-  #abilities { grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; gap: 8px; }
+  #abilities { flex-wrap: wrap; justify-content: center; }
   .chip span { display: none; }
   #lobby-modes { grid-template-columns: 1fr; }
   #cards { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; width: 100%; }
@@ -316,7 +322,7 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
   #feed div { font-size: 12px; }
 }
 @media (max-height: 540px) {
-  #abilities { grid-template-columns: repeat(5, minmax(0, 1fr)); width: 100%; max-width: 800px; }
+
   .chip span, .chip em { display: none; }
   #title { font-size: min(9vw, 54px); }
   #tagline { margin: 6px 0 4px; font-size: 14px; }
@@ -420,16 +426,20 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
     <div><div class="label">ARENA</div><div class="seg" id="map-seg"></div><div class="seg sub" id="size-seg"></div></div>
     <div><div class="label">BOTS</div><div class="seg" id="difficulty-seg"></div><div class="seg sub" id="count-seg"></div></div>
   </div>
-  <div class="label">SPACEBAR ABILITY</div>
-  <div id="abilities"></div>
-  <div class="label">YOUR COLOUR</div>
-  <div id="swatches"></div>
+  <div id="setup2">
+    <div><div class="label">SPACEBAR ABILITY</div><div class="seg" id="abilities"></div><div id="ab-info"></div></div>
+    <div><div class="label">YOUR COLOUR</div><div id="swatches"></div></div>
+  </div>
   <div id="play-row">
     <button class="big-btn" id="play">PLAY SOLO</button>
     <button class="big-btn alt" id="play-online">PLAY WITH A FRIEND</button>
   </div>
+  <div id="menu-links">
+    <button class="ghost-btn" id="practice-btn">PRACTICE RANGE</button>
+    <button class="ghost-btn" id="arsenal-btn" aria-expanded="false">THE ARSENAL &#9662;</button>
+  </div>
   <div id="best"></div>
-  <div id="arsenal" class="pill">
+  <div id="arsenal" class="pill" hidden>
     <div class="arsenal-head"><b>THE ARSENAL</b><span id="cards-label">Start with a pistol. Roll over a gun in the arena to grab it.</span></div>
     <div id="cards"></div>
     <div id="gun-info"></div>

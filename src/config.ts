@@ -1,13 +1,13 @@
 // Tunables for the whole game. Units: metres, seconds.
 
-export type WeaponId = 'shotgun' | 'chaingun' | 'rocket' | 'railgun' | 'bouncer' | 'flamethrower' | 'gravity' | 'pistol' | 'grenade' | 'spikes';
+export type WeaponId = 'shotgun' | 'chaingun' | 'rocket' | 'railgun' | 'bouncer' | 'flamethrower' | 'gravity' | 'lightning' | 'pistol' | 'grenade' | 'spikes';
 
 export interface WeaponDef {
   id: WeaponId;
   name: string;
   blurb: string;
   icon: string;
-  kind: 'bullet' | 'rocket' | 'rail' | 'bounce' | 'flame' | 'grav' | 'lob' | 'melee';
+  kind: 'bullet' | 'rocket' | 'rail' | 'bounce' | 'flame' | 'grav' | 'zap' | 'lob' | 'melee';
   hidden?: boolean;    // Gun Game only, not in the loadout picker
   semi?: boolean;      // one shot per click for players
   bounces?: number;    // wall bounces before a projectile dies
@@ -72,10 +72,16 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     stats: { power: 0.8, range: 0.25, rate: 1 },
   },
   gravity: {
-    id: 'gravity', name: 'Gravity Gun', blurb: 'Hold to drag balls in, let go to fling them. Walls hurt.', icon: 'GG',
+    id: 'gravity', name: 'Gravity Gun', blurb: 'Hold to drag balls in, let go to fling them. Walls hurt.', icon: 'GG', hidden: true,   // retired: swapped for the lightning gun
     kind: 'grav', rate: 1.4, clip: 1, reload: 0.1, pellets: 1, spread: 0, speed: 0, life: 0, range: 9,
     damage: 8, knock: 25, recoil: 2, color: 0x6ad0ff, preferred: 5,
     stats: { power: 0.7, range: 0.45, rate: 0.35 },
+  },
+  lightning: {
+    id: 'lightning', name: 'Lightning Gun', blurb: 'Locks onto the nearest ball in front of you and chains to two more. Close enough counts.', icon: 'LG',
+    kind: 'zap', rate: 8, clip: 40, reload: 1.8, pellets: 1, spread: 0.45, speed: 0, life: 0, range: 7.5,
+    damage: 9, knock: 0.8, recoil: 0.1, color: 0x8fd4ff, preferred: 5,
+    stats: { power: 0.6, range: 0.4, rate: 0.85 },
   },
   pistol: {
     id: 'pistol', name: 'Pistol', blurb: 'What everyone starts with. Accurate, one shot per click.', icon: 'PS',
@@ -99,7 +105,9 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
 /** Everyone spawns with this; the rest are picked up around the arena. */
 export const START_WEAPON: WeaponId = 'pistol';
 /** Guns that lie around the map, most contested spots first. */
-export const MAP_GUNS: WeaponId[] = ['rocket', 'railgun', 'flamethrower', 'shotgun', 'gravity', 'chaingun', 'bouncer', 'shotgun'];
+export const MAP_GUNS: WeaponId[] = ['rocket', 'railgun', 'lightning', 'flamethrower', 'shotgun', 'chaingun', 'bouncer', 'lightning'];
+/** Lightning chains from the first ball to up to two more nearby, each for a share of the damage. */
+export const ZAP = { chains: 2, hop: 3.6, falloff: 0.6 };
 /** Flamethrower afterburn and the gravity gun's pull / wall-slam numbers. */
 export const BURN = { t: 2.2, dps: 12, patchT: 1.6, patchR: 0.75, patchDps: 22 };
 export const GRAV = { pull: 62, hold: 1.7, maxHold: 2.5, flingR: 3.2, slamSpeed: 6, slamDmg: 4, slamMax: 50 };
@@ -107,7 +115,7 @@ export const GUN_RESPAWN = { normal: 12, power: 22, dropLife: 12, maxDrops: 10 }
 /** Guns you can pick in the loadout (Gun Game adds the hidden ones). */
 export const PICKABLE = (Object.keys(WEAPONS) as WeaponId[]).filter(w => !WEAPONS[w].hidden);
 /** Gun Game ladder: strongest first, the spikes finale is the "knife". */
-export const LADDER: WeaponId[] = ['rocket', 'railgun', 'chaingun', 'flamethrower', 'bouncer', 'shotgun', 'gravity', 'pistol', 'grenade', 'spikes'];
+export const LADDER: WeaponId[] = ['rocket', 'railgun', 'chaingun', 'flamethrower', 'bouncer', 'shotgun', 'lightning', 'pistol', 'grenade', 'spikes'];
 
 export const GRENADE = { fuse: 1.5, radius: 3.4, damage: 75, knock: 18, maxThrow: 12, start: 2, max: 4, cooldown: 0.6 };
 
@@ -123,14 +131,15 @@ export const BALL = {
   respawn: 2.2,
 };
 
-export type ModeId = 'solo' | 'duel' | 'coop' | 'gungame' | 'ggduel' | 'waves';
-export interface ModeDef { id: ModeId; name: string; blurb: string; bots: number; limit: number; time: number; teams: boolean; size: number; online: boolean; gun?: boolean; perTier?: number; map?: 'fort' | 'towers' | 'random'; waves?: boolean }
+export type ModeId = 'solo' | 'duel' | 'coop' | 'gungame' | 'ggduel' | 'waves' | 'practice';
+export interface ModeDef { id: ModeId; name: string; blurb: string; bots: number; limit: number; time: number; teams: boolean; size: number; online: boolean; gun?: boolean; perTier?: number; map?: 'fort' | 'towers' | 'random'; waves?: boolean; practice?: boolean }
 export const MODES: Record<ModeId, ModeDef> = {
   solo: { id: 'solo', name: 'Free-for-all', blurb: 'You and 7 bots. First to 20 pops.', bots: 7, limit: 20, time: 240, teams: false, size: 32, online: false },
   duel: { id: 'duel', name: '1v1', blurb: 'You against your friend. First to 10 pops.', bots: 0, limit: 10, time: 300, teams: false, size: 22, online: true },
   coop: { id: 'coop', name: '2 vs bots', blurb: 'You and your friend against 5 bots. First team to 30.', bots: 5, limit: 30, time: 300, teams: true, size: 30, online: true, map: 'fort' },
   gungame: { id: 'gungame', name: 'Gun Game', blurb: 'Every pop moves you up a weapon. Win with a spikes kill.', bots: 7, limit: 8, time: 480, teams: false, size: 32, online: false, gun: true, perTier: 1 },
   waves: { id: 'waves', name: 'Hold the Fort', blurb: 'Defend the keep against waves of bots. A boss every 5th wave.', bots: 8, limit: 0, time: 0, teams: true, size: 30, online: true, map: 'fort', waves: true },
+  practice: { id: 'practice', name: 'Practice range', blurb: 'Pop 20 target balls as fast as you can. They never shoot back.', bots: 6, limit: 20, time: 0, teams: false, size: 22, online: false, practice: true },
   ggduel: { id: 'ggduel', name: 'Gun Game 1v1', blurb: 'Climb the weapon ladder: 2 pops per weapon, win with spikes.', bots: 0, limit: 8, time: 480, teams: false, size: 22, online: true, gun: true, perTier: 2 },
 };
 export const MAPS = {

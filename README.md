@@ -4,15 +4,16 @@ Rolling toy balls with guns. A top-down arena shooter in the spirit of Babo Viol
 
 - **Solo:** free-for-all against 3, 5 or 7 bots (first to 20 pops), Gun Game, or Hold the Fort.
 - **With a friend:** 1v1 (first to 10), the two of you against 5 bots (first team to 30), Gun Game 1v1, or Hold the Fort together, joined with an invite link. Rematch goes straight back in without the lobby.
-- Eight guns and grenades. Everyone starts with a pistol; the shotgun, chaingun, bouncer, flamethrower and gravity gun lie around the arena, and the rockets and railgun are power weapons with limited ammo in the most contested spots. Roll over a gun to swap to it; guns are dropped when their owner pops. Plus a Spacebar ability (dash, spikes, bubble, shockwave, mine).
+- Eight guns and grenades. Everyone starts with a pistol; the shotgun, chaingun, bouncer, flamethrower and lightning gun lie around the arena, and the rockets and railgun are power weapons with limited ammo in the most contested spots. Roll over a gun to swap to it; guns are dropped when their owner pops. Plus a Spacebar ability (dash, spikes, bubble, shockwave, mine).
 - **Flamethrower:** short range, sets balls alight (afterburn) and leaves fire on the floor for a moment.
-- **Gravity gun:** hold to drag balls towards you, let go to fling them. Flung balls can't steer for a moment, and slamming into a wall hurts (credited to you).
+- **Lightning gun:** locks onto the best target in a cone in front of you (no precise aim needed) and chains to up to two more balls nearby for 60% and 36% damage. Short range. (It replaced the gravity gun, which is retired but still in the code.)
+- **Practice range:** Practice Range on the menu: you and six target balls that never shoot back. Nothing can hurt you, 1-8 swap guns instantly, and the targets speed up as you go. Pop 20 as fast as you can; your best time is saved.
 - **Mine (ability):** Space drops a proximity mine behind you; three at a time, arms after a second.
 - **Arenas:** **Random** (a freshly generated layout every match, small, medium or large), or two hand-made maps with raised floors: **Fort** (a keep with ramps and battlements; Hold the Fort always plays here) and **Towers** (two raised corner towers).
 
 ### Gun Game
 
-Every pop moves you one weapon up the ladder: rockets, railgun, chaingun, flamethrower, bouncer, shotgun, gravity gun, pistol, unlimited grenades, then spikes. Pop someone with spikes to win. One pop per level against bots, two in the 1v1. Getting spiked (or popping yourself) drops you a level. The spikes ability and grenade pickups are off in this mode.
+Every pop moves you one weapon up the ladder: rockets, railgun, chaingun, flamethrower, bouncer, shotgun, lightning gun, pistol, unlimited grenades, then spikes. Pop someone with spikes to win. One pop per level against bots, two in the 1v1. Getting spiked (or popping yourself) drops you a level. The spikes ability and grenade pickups are off in this mode.
 
 ### Hold the Fort
 

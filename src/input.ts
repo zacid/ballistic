@@ -63,6 +63,7 @@ export class Input {
         if (k === 'g' || k === 'q') this.nade();
         if (k === ' ' || k === 'shift') { e.preventDefault(); this.abilityQueued = true; }
         if (k === 'r' && this.g.player.alive) this.g.reload(this.g.player);
+        if (this.g.mode.practice && k.length === 1 && k >= '1' && k <= '9') this.g.practiceGun(Number(k));
       }
       if (k === 'enter' && (this.g.state === 'menu' || (this.g.state === 'over' && !this.g.online))) this.g.start();
     }

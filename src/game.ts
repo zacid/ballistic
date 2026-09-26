@@ -4,7 +4,7 @@ import { CLIMB, Arena, CELL } from './arena';
 import { Audio } from './audio';
 import { Babo, buildGun, makeBabo, setBlobShadows, setBoss, setTeamRing, setWeapon, updateBaboVisual } from './babo';
 import {
-  ABILITIES, AbilityId, BALL, BOSS, BOT_NAMES, BURN, GRAV, MINE, GUN_RESPAWN, MAP_GUNS, START_WEAPON, COLORS, DASH, DIFFICULTY, Difficulty, GRENADE, LADDER, MapChoice, ArenaSize, ARENA_SIZES, MAPS, MODES, ModeDef, ModeId,
+  ABILITIES, AbilityId, BALL, BOSS, BOT_NAMES, BURN, GRAV, MINE, ZAP, GUN_RESPAWN, MAP_GUNS, START_WEAPON, COLORS, DASH, DIFFICULTY, Difficulty, GRENADE, LADDER, MapChoice, ArenaSize, ARENA_SIZES, MAPS, MODES, ModeDef, ModeId,
   PICKABLE, SPIKES, WAVE, WAVES, WEAPONS, WeaponId,
 } from './config';
 import type { MapId } from './arena';
@@ -42,7 +42,7 @@ const STORE = 'ballistic.v1';
 export interface Saved {
   weapon: WeaponId; ability: AbilityId; color: number; difficulty: Difficulty; quality: Quality | 'auto';
   muted: boolean; best?: number; perf?: boolean; nick: string;
-  soloMode: 'solo' | 'gungame' | 'waves'; map: MapChoice; arenaSize: ArenaSize; botCount: number; coopBots: number; ffaSkill?: number; bestWave?: number; music?: boolean; sfxVol: number; musicVol: number; records?: { streak?: number; dmg?: number; acc?: number }; aimAssist: boolean; v2?: boolean;
+  soloMode: 'solo' | 'gungame' | 'waves'; map: MapChoice; arenaSize: ArenaSize; botCount: number; coopBots: number; ffaSkill?: number; bestWave?: number; practiceBest?: number; music?: boolean; sfxVol: number; musicVol: number; records?: { streak?: number; dmg?: number; acc?: number }; aimAssist: boolean; v2?: boolean;
 }
 function load(): Saved {
   let s: Partial<Saved> = {};
@@ -205,7 +205,35 @@ export class Game {
 
   start() {
     if (this.online) { this.hud.toLobby(); return; }
+    if (this.mode.practice && this.state === 'over') { this.startPractice(); return; }
     this.startSolo();
+  }
+
+  /** Practice range: you and six target balls that wander and never shoot. Every gun is on a pad,
+   *  and 1-8 swap guns instantly. Pop 20 as fast as you can; the targets speed up as you go. */
+  startPractice() {
+    this.online = false; this.host = true; this.partner = ''; this.epoch = 0;
+    const mode = MODES.practice, pc = this.saved.color % COLORS.length;
+    const roster: RosterEntry[] = [{ id: 0, name: 'You', color: COLORS[pc].hex, team: 0, human: true }];
+    for (let i = 0; i < mode.bots; i++) roster.push({ id: i + 1, name: `Target ${i + 1}`, color: 0xe8ecf5, team: i + 1, human: false });
+    this.begin(mode, (Math.random() * 1e9) | 0, roster, 0, 'random', 22);
+  }
+
+  /** Practice targets: roll between random points, a little faster with every pop you land. */
+  private stepTarget(b: Babo) {
+    const br = (b.brain ??= { tx: b.x, tz: b.z }) as { tx: number; tz: number };
+    if (Math.hypot(br.tx - b.x, br.tz - b.z) < 1.2 || Math.random() < 0.004) {
+      const s = this.arena.spawns[(Math.random() * this.arena.spawns.length) | 0]; br.tx = s.x; br.tz = s.z;
+    }
+    const d = Math.hypot(br.tx - b.x, br.tz - b.z) || 1, k = 0.25 + 0.6 * Math.min(1, this.player.kills / this.mode.limit);
+    b.moveX = ((br.tx - b.x) / d) * k; b.moveZ = ((br.tz - b.z) / d) * k;
+    b.fire = false; b.wantAbility = false;
+  }
+
+  /** Practice: number keys swap straight to a gun. */
+  practiceGun(n: number) {
+    const w = PICKABLE[n - 1]; if (!this.mode.practice || !w || !this.player?.alive) return;
+    setWeapon(this.player, w); this.player.cool = 0.15; this.hud.toast(WEAPONS[w].name);
   }
 
   /** Cells across for a random arena, from the size picker. */
@@ -242,7 +270,7 @@ export class Game {
     // solo matches against bots (not Hold the Fort, which has its own director): size bots to you
     // matches with bots (not Hold the Fort, which has its own director): size the bots to each human.
     // The host runs it (bots live there); a guest mirrors the numbers from the host state.
-    const hasBots = roster.some(e => !e.human) && !mode.waves;
+    const hasBots = roster.some(e => !e.human) && !mode.waves && !mode.practice;
     this.ffa.start(hasBots && this.host && this.saved.difficulty === 'adaptive',
       roster.filter(e => e.human).map(e => ({ id: e.id, skill: e.id === myId ? this.saved.ffaSkill : e.sk, local: e.id === myId })));
     for (const b of this.babos) {
@@ -263,13 +291,17 @@ export class Game {
       ? [...this.babos].sort((a, b) => Number(b.won) - Number(a.won) || b.tier - a.tier || b.tierKills - a.tierKills || b.kills - a.kills)
       : [...this.babos].sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
     let won: boolean;
-    if (this.mode.waves) {
+    if (this.mode.practice) {
+      const t = Math.round(this.matchT * 10) / 10, done = this.player.kills >= this.mode.limit;
+      won = done && (!this.saved.practiceBest || t < this.saved.practiceBest);
+      if (won) { this.saved.practiceBest = t; this.save(); }
+    } else if (this.mode.waves) {
       won = !this.saved.bestWave || this.wv.n > this.saved.bestWave;
       if (!this.online && won) { this.saved.bestWave = this.wv.n; this.save(); }
     } else if (this.mode.teams) { const ts = this.teamScores(); won = ts[this.player.team] >= Math.max(...Object.values(ts)); }
     else won = ranked[0] === this.player;
     const place = ranked.indexOf(this.player) + 1;
-    if (!this.online && !this.mode.waves && (!this.saved.best || place < this.saved.best)) { this.saved.best = place; this.save(); }
+    if (!this.online && !this.mode.waves && !this.mode.practice && (!this.saved.best || place < this.saved.best)) { this.saved.best = place; this.save(); }
     this.audio.play(won ? 'win' : 'lose');
     if (this.online && this.host) this.flushNet(true);
     this.hud.showResult(ranked, place, won);
@@ -389,6 +421,7 @@ export class Game {
   private checkLimit() {
     if (!this.host || this.state !== 'playing') return;
     if (this.mode.waves) return;
+    if (this.mode.practice) { if (this.player.kills >= this.mode.limit) this.end(); return; }   // stop the clock on the 20th pop
     if (this.mode.gun) { if (this.babos.some(b => b.won)) setTimeout(() => { if (this.state === 'playing') this.end(); }, 900); return; }
     const hit = this.mode.teams ? Object.values(this.teamScores()).some(v => v >= this.mode.limit) : this.babos.some(b => b.kills >= this.mode.limit);
     if (hit) setTimeout(() => { if (this.state === 'playing') this.end(); }, 900);
@@ -475,6 +508,7 @@ export class Game {
     if (this.arena.raycast(b.x, b.z, mx, mz, sy) >= 0) { mx = b.x; mz = b.z; }
     if (b === this.player) this.ms.shots += w.kind === 'rail' ? 1 : w.pellets;
     if (w.kind === 'rail') { this.fireRail(b, mx, sy, mz); }
+    else if (w.kind === 'zap') { this.fireZap(b, mx, sy, mz); }
     else for (let i = 0; i < w.pellets; i++) {
       const a = base + (w.pellets > 1 ? ((i + Math.random()) / w.pellets - 0.5) * w.spread : (Math.random() - 0.5) * w.spread);
       const sp = w.speed * (w.pellets > 1 ? 0.9 + Math.random() * 0.2 : 1);
@@ -493,6 +527,57 @@ export class Game {
     if (w.pellets > 1) this.fx.puff(fx, sy, fz, 0.18, 0.4, b.aimX * 3, 0.6, b.aimZ * 3, 1.5);
     this.audio.play(w.id, b.x, b.z, b.isPlayer ? 1 : 0.75);
     if (b.isPlayer) this.r.addShake(w.kind === 'rocket' || w.kind === 'rail' ? 0.25 : w.pellets > 1 ? 0.3 : 0.05);
+  }
+
+  /**
+   * Lightning gun: no need for precise aim. The bolt locks onto the best target in a cone in front of
+   * you (nearest, and closest to the crosshair), then chains to up to two more balls near it. The
+   * shooter's client deals the damage; other clients draw the same kind of bolts from their view.
+   */
+  private fireZap(b: Babo, x0: number, y: number, z0: number) {
+    const w = WEAPONS.lightning, R = w.range!, aim = Math.atan2(b.aimZ, b.aimX);
+    const sees = (ax: number, az: number, ay: number, v: Babo) => this.arena.raycast(ax, az, v.x, v.z, ay, true, CLIMB) < 0;
+    let first: Babo | null = null, best = 1e9;
+    for (const v of this.babos) {
+      if (v === b || !v.alive || !this.canDamage(b, v) || Math.abs(v.y - b.y) > 1.4) continue;
+      const dx = v.x - b.x, dz = v.z - b.z, d = Math.hypot(dx, dz);
+      if (d > R) continue;
+      let da = Math.atan2(dz, dx) - aim; while (da > Math.PI) da -= Math.PI * 2; while (da < -Math.PI) da += Math.PI * 2;
+      if (Math.abs(da) > w.spread && d > 1.5) continue;
+      const score = d + Math.abs(da) * 6;
+      if (score < best && sees(b.x, b.z, y, v)) { best = score; first = v; }
+    }
+    this.audio.play('lightning', b.x, b.z, b.isPlayer ? 1 : 0.7);
+    if (!first) {
+      // nothing in reach: a short fizzle into the air
+      const a = aim + (Math.random() - 0.5) * 0.5, l = 2.5 + Math.random() * 1.5;
+      this.fx.bolt(x0, y, z0, x0 + Math.cos(a) * l, y + (Math.random() - 0.3) * 0.4, z0 + Math.sin(a) * l, w.color, 0.7);
+      return;
+    }
+    if (b === this.player) this.ms.hits++;
+    const hitList: Babo[] = [first];
+    let cur = first;
+    for (let i = 0; i < ZAP.chains; i++) {
+      let next: Babo | null = null, nd = ZAP.hop;
+      for (const v of this.babos) {
+        if (v === b || !v.alive || hitList.includes(v) || !this.canDamage(b, v) || Math.abs(v.y - cur.y) > 1.4) continue;
+        const d = Math.hypot(v.x - cur.x, v.z - cur.z);
+        if (d < nd && sees(cur.x, cur.z, cur.y + 0.55, v)) { nd = d; next = v; }
+      }
+      if (!next) break;
+      hitList.push(next); cur = next;
+    }
+    let fx = x0, fy = y, fz = z0, dmg = w.damage;
+    for (const v of hitList) {
+      const ty = v.y + 0.55;
+      this.fx.bolt(fx, fy, fz, v.x, ty, v.z, w.color, v === first ? 1.2 : 0.9);
+      this.fx.glow(v.x, ty, v.z, 0, 1, 0, 0.12, 0xe0f6ff, 0.12, 0);
+      if (b.local) {
+        const dx = v.x - fx, dz = v.z - fz, l = Math.hypot(dx, dz) || 1;
+        this.hit(b, v, dmg, (dx / l) * w.knock, (dz / l) * w.knock, 0);
+      }
+      fx = v.x; fy = ty; fz = v.z; dmg *= ZAP.falloff;
+    }
   }
 
   /** Railgun: instant beam to the first wall, piercing every ball on the way. */
@@ -743,6 +828,7 @@ export class Game {
     if (v.boss) { kx *= BOSS.knock; kz *= BOSS.knock; vy *= BOSS.knock; }
     v.vx += kx; v.vz += kz; v.vy += vy;
     if (v.spawnShield > 0) return;
+    if (this.mode.practice && v.human) return;   // nothing can hurt you on the range (not even your own rockets)
     v.hp -= dmg; if (dmg >= 1) v.hurtT = 0.12;
     if (by !== v.id) { v.lastHitBy = by; v.lastHitT = this.clock; }
     if (v.isPlayer && by >= 0 && by !== v.id && dmg >= 1 && this.babos[by]) this.hud.damageFrom(this.babos[by]);
@@ -759,7 +845,7 @@ export class Game {
   onDeath(v: Babo, killer: number) {
     if (!v.root.visible && !v.alive && !v.local) { /* already hidden by snapshot; still show the burst */ }
     v.alive = false; v.root.visible = false; v.deaths++; v.streak = 0; v.abT = 0; v.burnT = 0; v.flungT = 0; v.gravT = 0;
-    if (v.local) v.respawnT = BALL.respawn;
+    if (v.local) v.respawnT = this.mode.practice && !v.human ? 0.5 : BALL.respawn;
     const k = this.babos[killer];
     const knifed = !!(k && k !== v && k.weapon === 'spikes');
     if (k && k !== v) { k.kills++; k.streak++; } else if (k === v) { v.kills = Math.max(0, v.kills - 1); }
@@ -777,7 +863,7 @@ export class Game {
       this.saveFfa();
     }
     // drop the gun: anyone can grab it for a few seconds (runs on every client, so no message needed)
-    if (!this.mode.gun && v.weapon !== START_WEAPON && WEAPONS[v.weapon].kind !== 'melee' && (this.state === 'playing')) {
+    if (!this.mode.gun && !this.mode.practice && v.weapon !== START_WEAPON && WEAPONS[v.weapon].kind !== 'melee' && (this.state === 'playing')) {
       const drops = this.pickups.filter(p => p.drop);
       if (drops.length >= GUN_RESPAWN.maxDrops) this.removePickup(drops[0]);
       this.addGun(v.weapon, v.x, v.z, `${v.id}:${v.deaths}`);
@@ -927,7 +1013,7 @@ export class Game {
       // guests wait for the host's go (with a safety margin if the message is late)
       if (this.countT <= 0 && (this.host || this.countT < -1.5)) this.go();
     }
-    if (this.mode.waves) { if (live) this.matchT += dt; if (live && this.host) this.stepWaves(dt); }
+    if (this.mode.waves || this.mode.practice) { if (live) this.matchT += dt; if (live && this.host && this.mode.waves) this.stepWaves(dt); }
     if (live) this.ffa.step(dt);
     else if (live && this.host) { this.matchT -= dt; if (this.matchT <= 0) { this.matchT = 0; this.end(); } }
     else if (live) this.matchT = Math.max(0, this.matchT - dt);
@@ -951,7 +1037,7 @@ export class Game {
       if (b.hp > b.maxHp) b.hp = Math.max(b.maxHp, b.hp - dt * 3);
       if (this.state === 'countdown') { b.moveX = b.moveZ = 0; b.fire = false; b.wantAbility = false; }
       else if (b.isPlayer) this.input.apply(b);
-      else if (this.state === 'playing') thinkBot(this, b, dt, diff);
+      else if (this.state === 'playing') { if (this.mode.practice) this.stepTarget(b); else thinkBot(this, b, dt, diff); }
       else { b.moveX = b.moveZ = 0; b.fire = false; b.wantAbility = false; }
       if (b.wantAbility && live) this.useAbility(b);
       b.wantAbility = false;
@@ -1221,7 +1307,7 @@ export class Game {
       const w = WEAPONS[p.w!];
       this.audio.play('reload', p.x, p.z); this.audio.play('pickup', p.x, p.z, 0.6);
       for (let k = 0; k < 10; k++) { const a = Math.random() * Math.PI * 2; this.fx.glow(p.x, 0.8 + p.mesh.position.y, p.z, Math.cos(a) * 2, 2 + Math.random() * 2, Math.sin(a) * 2, 0.07, w.color, 0.4, 3); }
-      if (p.drop) this.removePickup(p); else p.t = w.ammo ? GUN_RESPAWN.power : GUN_RESPAWN.normal;
+      if (p.drop) this.removePickup(p); else p.t = this.mode.practice ? 2 : w.ammo ? GUN_RESPAWN.power : GUN_RESPAWN.normal;
       return;
     }
     p.t = RESPAWN[p.kind];
@@ -1476,7 +1562,7 @@ export class Game {
 
   /** Result screen: play the same mode again straight away (the friend's page follows the new offer). */
   rematch() {
-    if (!this.online) { this.startSolo(); return; }
+    if (!this.online) { if (this.mode.practice) this.startPractice(); else this.startSolo(); return; }
     if (!this.partnerHere) { this.hud.toast('Your friend left. Back to the lobby.'); this.backToLobby(); return; }
     for (const b of this.babos) b.root.visible = false;
     this.hostMatch(this.lastMode);
@@ -1570,6 +1656,7 @@ export class Game {
     if (this.state === 'countdown') { m.set('match', 0); return; }
     const mode = this.mode, bs = this.babos;
     let hot = false;
+    if (mode.practice) { m.set('match', 0); return; }
     if (mode.waves) hot = this.wv.boss >= 0 || (this.wv.lives <= 1 && this.wv.n > 1) || this.wv.n >= 8;
     else if (mode.gun) hot = bs.some(b => b.tier >= LADDER.length - 2);
     else if (mode.teams) hot = Math.max(...Object.values(this.teamScores())) >= mode.limit - 5;

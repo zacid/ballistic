@@ -32,8 +32,12 @@ const place = async () => {
   await A.waitForTimeout(700);
   return s;
 };
-const give = (P, w) => P.evaluate((w) => { const g = window.__game, me = g.player, pk = g.pickups.find(p => p.w === w); const ox = me.x, oz = me.z; me.x = pk.x; me.z = pk.z; me.y = me.gy = g.arena.floorAt(pk.x, pk.z); g.step(1 / 120); me.x = ox; me.z = oz; me.y = me.gy = 0; return me.weapon; }, w);
+const give = (P, w) => P.evaluate((w) => { const g = window.__game, me = g.player, pk = g.pickups.find(p => p.w === w); if (!pk) { me.weapon = w; me.ammo = 99; return w + ' (no pad on this map)'; } const ox = me.x, oz = me.z; me.x = pk.x; me.z = pk.z; me.y = me.gy = g.arena.floorAt(pk.x, pk.z); g.step(1 / 120); me.x = ox; me.z = oz; me.y = me.gy = 0; return me.weapon; }, w);
 let s = await place();
+console.log('A has', await give(A, 'lightning'));
+await A.evaluate(() => { window.__fire = true; }); await A.waitForTimeout(1200); await A.evaluate(() => { window.__fire = false; });
+console.log('lightning: B hp', await B.evaluate(() => Math.round(window.__game.player.hp)));
+s = await place();
 console.log('A has', await give(A, 'gravity'));
 const bx0 = await B.evaluate(() => window.__game.player.x);
 await A.evaluate(() => { window.__fire = true; }); await A.waitForTimeout(1500);

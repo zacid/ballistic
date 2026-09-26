@@ -30,6 +30,12 @@ export class Hud {
     this.buildMenu();
     $('play').addEventListener('click', () => { this.g.audio.unlock(); this.g.startSolo(); });
     $('play-online').addEventListener('click', () => { this.g.audio.play('click'); this.g.openLobby(); });
+    $('practice-btn').addEventListener('click', () => { this.g.audio.unlock(); this.g.startPractice(); });
+    $('arsenal-btn').addEventListener('click', () => {
+      const a = $('arsenal'), open = a.hidden; a.hidden = !open;
+      $('arsenal-btn').setAttribute('aria-expanded', String(open)); $('arsenal-btn').innerHTML = open ? 'THE ARSENAL &#9652;' : 'THE ARSENAL &#9662;';
+      this.g.audio.unlock(); this.g.audio.play('click');
+    });
     $('again').addEventListener('click', () => { this.g.audio.play('click'); this.g.rematch(); });
     $('to-lobby').addEventListener('click', () => this.g.backToLobby());
     $('to-menu').addEventListener('click', () => this.toMenu());
@@ -84,15 +90,17 @@ export class Hud {
   // ---------- menu ----------
   private buildMenu() {
     this.buildArsenal();
+    // abilities: a compact picker; the chosen one's description sits underneath
     const ab = $('abilities'); ab.innerHTML = '';
     for (const a of Object.values(ABILITIES)) {
       const c = document.createElement('button');
-      c.className = 'chip' + (a.id === this.g.saved.ability ? ' on' : '');
-      c.setAttribute('aria-pressed', String(a.id === this.g.saved.ability));
-      c.innerHTML = `<b>${a.name}</b><span>${a.blurb}</span><em>${a.cooldown}s cooldown</em>`;
+      c.className = a.id === this.g.saved.ability ? 'on' : '';
+      c.setAttribute('aria-pressed', String(a.id === this.g.saved.ability)); c.title = a.blurb;
+      c.innerHTML = `${a.name}<small>${a.cooldown}s</small>`;
       c.addEventListener('click', () => { this.g.audio.unlock(); this.g.audio.play('click'); this.pickAbility(a.id); this.buildMenu(); });
       ab.appendChild(c);
     }
+    $('ab-info').textContent = ABILITIES[this.g.saved.ability].blurb;
     const sw = $('swatches'); sw.innerHTML = '';
     COLORS.forEach((col, i) => {
       const b = document.createElement('button');
@@ -323,7 +331,12 @@ export class Hud {
   showResult(ranked: Babo[], place: number, won: boolean) {
     const g = this.g;
     let title: string;
-    if (g.mode.waves) {
+    if (g.mode.practice) {
+      const done = g.player.kills >= g.mode.limit, best = g.saved.practiceBest;
+      title = done ? (won ? `NEW BEST: ${fmtTime(g.matchT)}` : `${g.mode.limit} TARGETS: ${fmtTime(g.matchT)}`) : 'PRACTICE OVER';
+      $('result-sub').textContent = best ? `Best time ${fmtTime(best)}` : '';
+    }
+    else if (g.mode.waves) {
       const n = g.wv.n, best = g.saved.bestWave ?? n;
       title = won && !g.online ? `NEW BEST: WAVE ${n}` : 'THE FORT FELL';
       $('result-sub').textContent = `You held out to wave ${n}${g.online ? '' : ` · best ${best}`}`;
@@ -622,7 +635,9 @@ export class Hud {
     }
 
     // clock + race
-    if (g.mode.waves) {
+    if (g.mode.practice) {
+      $('clock').textContent = fmtTime(g.matchT); $('clock').classList.remove('hurry');
+    } else if (g.mode.waves) {
       const w = g.wv;
       $('clock').textContent = w.breakT > 0 ? (w.n ? `NEXT WAVE ${Math.ceil(w.breakT)}` : `GET READY ${Math.ceil(w.breakT)}`) : `WAVE ${w.n}`;
       $('clock').classList.toggle('hurry', w.boss >= 0);
@@ -635,7 +650,10 @@ export class Hud {
       this.boardT = 0.25;
       const ranked = this.ranked();
       const place = ranked.indexOf(p) + 1;
-      if (g.mode.waves) {
+      if (g.mode.practice) {
+        const best = g.saved.practiceBest;
+        $('race').innerHTML = `<b>${p.kills}</b><span>/ ${g.mode.limit} targets${best ? ` &middot; best ${fmtTime(best)}` : ''}</span><em>1-8 swap guns</em>`;
+      } else if (g.mode.waves) {
         const w = g.wv, left = w.breakT > 0 ? 0 : w.queue + g.babos.filter(b => !b.human && b.alive).length;
         const hearts = w.lives <= 6 ? '&#9829;'.repeat(w.lives) || '<i>&#9829;</i>' : `&#9829;&times;${w.lives}`;
         const th = g.director.adaptive ? g.director.threat(Math.max(1, w.n)) : 0;
@@ -685,6 +703,9 @@ function gunThumbs() {
   } catch { /* no WebGL for thumbnails: names still show */ }
   return thumbCache;
 }
+
+/** m:ss.t */
+export function fmtTime(t: number) { t = Math.round(t * 10) / 10; const m = Math.floor(t / 60), s = t - m * 60; return `${m}:${s < 10 ? '0' : ''}${s.toFixed(1)}`; }
 
 export function ordinal(n: number) { const s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
 
