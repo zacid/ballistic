@@ -97,7 +97,7 @@ function gunGeo(id: WeaponId, accent: number) {
 }
 const gunMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.15 });
 
-function buildGun(id: WeaponId, accent: number) {
+export function buildGun(id: WeaponId, accent: number) {
   const g = new THREE.Group();
   const geo = gunGeo(id, accent);
   const body = new THREE.Mesh(geo.body, gunMat); body.castShadow = true; g.add(body);
@@ -163,6 +163,7 @@ export interface Babo {
   tier: number; tierKills: number; won: boolean;   // Gun Game
   gy: number;          // ground height under the ball
   aimDist: number;
+  reserve: number;     // spare rounds for power weapons; -1 = unlimited reloads
   rad: number;         // collision radius (the wave boss is bigger)
   maxHp: number;
   boss: boolean;     // how far away the player/bot is aiming (grenade throws)
@@ -203,7 +204,7 @@ export function makeBabo(id: number, name: string, color: number, weapon: Weapon
     weapon, ammo: WEAPONS[weapon].clip, reloadT: 0, cool: 0, nades: GRENADE.start, nadeCool: 0,
     ability, abCool: 0, abT: 0, abCount: 0, spikeHits: new Set(),
     aimX: 1, aimZ: 0, moveX: 0, moveZ: 0, fire: false, wantAbility: false,
-    kills: 0, deaths: 0, tier: 0, tierKills: 0, won: false, gy: 0, aimDist: 6, rad: BALL.radius, maxHp: BALL.hp, boss: false, semiLock: false, spikeCd: new Map(), streak: 0, lastHitBy: -1, lastHitT: 0, hurtT: 0, spawnShield: 0,
+    kills: 0, deaths: 0, tier: 0, tierKills: 0, won: false, gy: 0, aimDist: 6, reserve: -1, rad: BALL.radius, maxHp: BALL.hp, boss: false, semiLock: false, spikeCd: new Map(), streak: 0, lastHitBy: -1, lastHitT: 0, hurtT: 0, spawnShield: 0,
     root, ball, gun, ring, mat, spikes: sp, bubble, recoilZ: 0,
     net: [], netFire: false, netReload: false,
   };
@@ -211,6 +212,7 @@ export function makeBabo(id: number, name: string, color: number, weapon: Weapon
 
 export function setWeapon(b: Babo, w: WeaponId) {
   b.weapon = w; b.ammo = WEAPONS[w].clip; b.reloadT = 0;
+  const tot = WEAPONS[w].ammo; b.reserve = tot === undefined ? -1 : Math.max(0, tot - WEAPONS[w].clip);
   b.root.remove(b.gun);
   b.gun = buildGun(w, b.color);
   b.root.add(b.gun);

@@ -12,6 +12,8 @@ export interface WeaponDef {
   semi?: boolean;      // one shot per click for players
   bounces?: number;    // wall bounces before a projectile dies
   range?: number;      // hitscan / bot engagement range when speed*life doesn't apply
+  ammo?: number;       // power weapons: total rounds when picked up (clip included); empty = back to the pistol
+  linger?: { t: number; damage: number };   // railgun: the beam hangs in the air and hurts anyone rolling through
   rate: number;        // shots per second
   clip: number;
   reload: number;      // seconds
@@ -30,41 +32,44 @@ export interface WeaponDef {
 }
 
 export const WEAPONS: Record<WeaponId, WeaponDef> = {
+  // Balance targets (damage per second if every shot lands): pistol ~70, shotgun ~130 point blank
+  // falling to ~45 at its edge, chaingun ~115 close and ~60 at range, bouncer ~58, rockets ~66 plus
+  // splash, railgun ~52 but instant and piercing. Rockets and the railgun are power weapons: limited ammo.
   shotgun: {
-    id: 'shotgun', name: 'Shotgun', blurb: 'Ten pellets. Brutal up close, weak at range.', icon: 'SG',
-    kind: 'bullet', rate: 1.2, clip: 6, reload: 1.5, pellets: 10, spread: 0.42, speed: 42, life: 0.26,
-    damage: 11, falloff: 0.55, knock: 1.7, recoil: 2.2, color: 0xffb43a, preferred: 3,
-    stats: { power: 1, range: 0.3, rate: 0.3 },
+    id: 'shotgun', name: 'Shotgun', blurb: 'Ten pellets. Brutal up close, useless past a few metres.', icon: 'SG',
+    kind: 'bullet', rate: 1.2, clip: 6, reload: 1.5, pellets: 10, spread: 0.42, speed: 40, life: 0.18,
+    damage: 11, falloff: 0.65, knock: 1.7, recoil: 2.2, color: 0xffb43a, preferred: 2.8,
+    stats: { power: 1, range: 0.2, rate: 0.3 },
   },
   chaingun: {
-    id: 'chaingun', name: 'Chaingun', blurb: 'A hose of lead. Keep your aim on them.', icon: 'CG',
-    kind: 'bullet', rate: 13, clip: 50, reload: 1.8, pellets: 1, spread: 0.05, speed: 52, life: 0.5,
-    damage: 9, knock: 0.6, recoil: 0.18, color: 0xfff27a, preferred: 7,
-    stats: { power: 0.65, range: 0.8, rate: 1 },
+    id: 'chaingun', name: 'Chaingun', blurb: 'A hose of lead. Hits hardest up close.', icon: 'CG',
+    kind: 'bullet', rate: 13, clip: 50, reload: 1.8, pellets: 1, spread: 0.05, speed: 52, life: 0.42,
+    damage: 9, falloff: 0.5, knock: 0.6, recoil: 0.18, color: 0xfff27a, preferred: 6,
+    stats: { power: 0.65, range: 0.65, rate: 1 },
   },
   rocket: {
-    id: 'rocket', name: 'Rockets', blurb: 'Slow, loud, splash damage. Rocket-jump off walls.', icon: 'RL',
+    id: 'rocket', name: 'Rockets', blurb: 'Splash damage. Power weapon: 8 rockets.', icon: 'RL', ammo: 8,
     kind: 'rocket', rate: 0.95, clip: 4, reload: 2.3, pellets: 1, spread: 0.02, speed: 17, life: 2.5,
     damage: 25, knock: 2, recoil: 3, splash: { radius: 2.8, damage: 45, knock: 15 }, color: 0xff6a3d, preferred: 7.5,
-    stats: { power: 0.75, range: 0.7, rate: 0.24 },
+    stats: { power: 0.8, range: 0.7, rate: 0.24 },
   },
   railgun: {
-    id: 'railgun', name: 'Railgun', blurb: 'Instant beam that pierces every ball in a line.', icon: 'RG',
+    id: 'railgun', name: 'Railgun', blurb: 'Piercing beam that lingers. Power weapon: 6 shots.', icon: 'RG', ammo: 6,
     kind: 'rail', rate: 0.75, clip: 3, reload: 2.2, pellets: 1, spread: 0, speed: 0, life: 0, range: 40,
-    damage: 70, knock: 9, recoil: 3.5, color: 0xb38cff, preferred: 11,
+    damage: 70, knock: 9, recoil: 3.5, color: 0xb38cff, preferred: 11, linger: { t: 0.7, damage: 30 },
     stats: { power: 0.9, range: 1, rate: 0.15 },
   },
   bouncer: {
     id: 'bouncer', name: 'Bouncer', blurb: 'Glowing balls that ricochet off walls three times.', icon: 'BN',
     kind: 'bounce', rate: 3.2, clip: 12, reload: 1.8, pellets: 1, spread: 0.06, speed: 26, life: 1.4, bounces: 3,
-    damage: 20, knock: 2.2, recoil: 0.6, color: 0x5cffb0, preferred: 6,
-    stats: { power: 0.6, range: 0.6, rate: 0.5 },
+    damage: 18, knock: 2.2, recoil: 0.6, color: 0x5cffb0, preferred: 6,
+    stats: { power: 0.55, range: 0.6, rate: 0.5 },
   },
   pistol: {
-    id: 'pistol', name: 'Pistol', blurb: 'Accurate. Fires as fast as you can click.', icon: 'PS',
-    kind: 'bullet', rate: 6, clip: 12, reload: 1.2, pellets: 1, spread: 0.02, speed: 60, life: 0.45, semi: true,
-    damage: 17, knock: 0.9, recoil: 0.5, color: 0xcfe8ff, preferred: 7,
-    stats: { power: 0.45, range: 0.75, rate: 0.6 },
+    id: 'pistol', name: 'Pistol', blurb: 'What everyone starts with. Accurate, one shot per click.', icon: 'PS',
+    kind: 'bullet', rate: 5, clip: 12, reload: 1.2, pellets: 1, spread: 0.025, speed: 60, life: 0.42, semi: true,
+    damage: 14, falloff: 0.3, knock: 0.9, recoil: 0.5, color: 0xcfe8ff, preferred: 7,
+    stats: { power: 0.4, range: 0.75, rate: 0.55 },
   },
   grenade: {
     id: 'grenade', name: 'Grenades', blurb: 'Unlimited grenades. Click to throw.', icon: 'GR', hidden: true,
@@ -79,6 +84,11 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     stats: { power: 1, range: 0, rate: 1 },
   },
 };
+/** Everyone spawns with this; the rest are picked up around the arena. */
+export const START_WEAPON: WeaponId = 'pistol';
+/** Guns that lie around the map, most contested spots first. */
+export const MAP_GUNS: WeaponId[] = ['rocket', 'railgun', 'shotgun', 'chaingun', 'bouncer', 'shotgun', 'chaingun', 'bouncer'];
+export const GUN_RESPAWN = { normal: 12, power: 22, dropLife: 12, maxDrops: 10 };
 /** Guns you can pick in the loadout (Gun Game adds the hidden ones). */
 export const PICKABLE = (Object.keys(WEAPONS) as WeaponId[]).filter(w => !WEAPONS[w].hidden);
 /** Gun Game ladder: strongest first, the spikes finale is the "knife". */

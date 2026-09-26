@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Game } from './game';
 import type { Babo } from './babo';
-import { PICKABLE, WEAPONS } from './config';
+import { WEAPONS } from './config';
 
 const $ = (id: string) => document.getElementById(id)!;
 
@@ -61,8 +61,6 @@ export class Input {
         if (k === 'g' || k === 'q') this.nade();
         if (k === ' ' || k === 'shift') { e.preventDefault(); this.abilityQueued = true; }
         if (k === 'r' && this.g.player.alive) this.g.reload(this.g.player);
-        const n = Number(k);
-        if (n >= 1 && n <= PICKABLE.length && k.length === 1) this.g.hud.pickWeapon(PICKABLE[n - 1]);
       }
       if (k === 'enter' && (this.g.state === 'menu' || (this.g.state === 'over' && !this.g.online))) this.g.start();
     }

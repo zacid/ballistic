@@ -2,9 +2,9 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CLIMB, Arena, CELL } from './arena';
 import { Audio } from './audio';
-import { Babo, makeBabo, setBoss, setTeamRing, setWeapon, updateBaboVisual } from './babo';
+import { Babo, buildGun, makeBabo, setBoss, setTeamRing, setWeapon, updateBaboVisual } from './babo';
 import {
-  ABILITIES, AbilityId, BALL, BOSS, BOT_NAMES, COLORS, DASH, DIFFICULTY, Difficulty, GRENADE, LADDER, MapChoice, MODES, ModeDef, ModeId,
+  ABILITIES, AbilityId, BALL, BOSS, BOT_NAMES, GUN_RESPAWN, MAP_GUNS, START_WEAPON, COLORS, DASH, DIFFICULTY, Difficulty, GRENADE, LADDER, MapChoice, MODES, ModeDef, ModeId,
   PICKABLE, SPIKES, WAVE, WAVES, WEAPONS, WeaponId,
 } from './config';
 import type { MapId } from './arena';
@@ -24,7 +24,8 @@ import { RELAY_URL } from './config';
 interface Shot { owner: number; x: number; y: number; z: number; vx: number; vz: number; life: number; dist: number; w: WeaponId; mesh?: THREE.Object3D; trailT: number; cosmetic: boolean; bounces: number }
 interface Nade { owner: number; x: number; y: number; z: number; vx: number; vy: number; vz: number; fuse: number; mesh: THREE.Mesh; cosmetic: boolean }
 type PickKind = 'health' | 'nades' | 'mega';
-interface Pickup { kind: PickKind; x: number; z: number; t: number; mesh: THREE.Group }
+interface Pickup { kind: PickKind | 'weapon'; x: number; z: number; t: number; mesh: THREE.Group; w?: WeaponId; drop?: string; ttl?: number }
+interface Rail { owner: number; x0: number; z0: number; x1: number; z1: number; y: number; t: number; hit: Set<number> }
 
 const RESPAWN: Record<PickKind, number> = { health: 11, nades: 13, mega: 30 };
 const G = 24;
@@ -66,6 +67,7 @@ export class Game {
   lastMode: ModeId = 'duel';
   babos: Babo[] = [];
   shots: Shot[] = [];
+  rails: Rail[] = [];
   nades: Nade[] = [];
   pickups: Pickup[] = [];
   state: 'menu' | 'lobby' | 'countdown' | 'playing' | 'over' = 'menu';
@@ -135,8 +137,34 @@ export class Game {
       let kind: PickKind = this.arena.pickupKinds[i] ?? (i === this.arena.pickups.length - 1 ? 'mega' : Math.floor(i / 4) === 1 ? 'nades' : 'health');
       if (this.mode?.gun && kind === 'nades') kind = 'health';   // no spare grenades in Gun Game
       const mesh = pickupMesh(kind); mesh.position.set(s.x, this.arena.floorAt(s.x, s.z), s.z); this.r.scene.add(mesh);
-      return { kind, x: s.x, z: s.z, t: 0, mesh };
+      return { kind, x: s.x, z: s.z, t: 0, mesh } as Pickup;
     });
+    if (!this.mode?.gun) this.placeGuns();
+  }
+
+  /** Guns lying around the arena: spread-out spots (same on both clients), power weapons nearest the middle. */
+  private placeGuns() {
+    const a = this.arena, want = a.n >= 28 ? 7 : 5;
+    const taken = this.pickups.map(p => ({ x: p.x, z: p.z }));
+    const cand = a.spawns.filter(s => taken.every(t => Math.hypot(t.x - s.x, t.z - s.z) > 2.5));
+    if (!cand.length) return;
+    const chosen: { x: number; z: number }[] = [];
+    let first = cand[0]; for (const c of cand) if (Math.hypot(c.x, c.z) > 2 && Math.hypot(c.x, c.z) < Math.hypot(first.x, first.z)) first = c;
+    chosen.push(first);
+    while (chosen.length < want) {
+      let best = cand[0], bd = -1;
+      for (const c of cand) { const d = Math.min(...chosen.map(o => Math.hypot(o.x - c.x, o.z - c.z)), ...taken.map(o => Math.hypot(o.x - c.x, o.z - c.z) + 3)); if (d > bd) { bd = d; best = c; } }
+      if (bd < 3) break; chosen.push(best);
+    }
+    chosen.sort((p, q) => Math.hypot(p.x, p.z) - Math.hypot(q.x, q.z));
+    chosen.forEach((s, i) => this.addGun(MAP_GUNS[i % MAP_GUNS.length], s.x, s.z));
+  }
+
+  private addGun(w: WeaponId, x: number, z: number, drop?: string) {
+    const mesh = gunPickupMesh(w); mesh.position.set(x, this.arena.floorAt(x, z), z); this.r.scene.add(mesh);
+    const p: Pickup = { kind: 'weapon', w, x, z, t: 0, mesh, drop, ttl: drop ? GUN_RESPAWN.dropLife : undefined };
+    this.pickups.push(p);
+    return p;
   }
 
   /** Which arena a mode plays on, given the player's map choice. */
@@ -171,14 +199,14 @@ export class Game {
     for (const b of this.babos) this.r.scene.remove(b.root);
     for (const s of this.shots) if (s.mesh) this.r.scene.remove(s.mesh);
     for (const n of this.nades) this.r.scene.remove(n.mesh);
-    this.babos = []; this.shots = []; this.nades = [];
+    this.babos = []; this.shots = []; this.nades = []; this.rails = [];
     this.mode = mode; this.seed = seed; this.endReason = ''; this.map = map;
     this.newArena(mode.size, map);
     this.fx.clear();
     const rnd = mulberry(seed ^ 0x5bd1e995);
     for (const e of roster) {
       const me = e.id === myId;
-      const w = mode.gun ? LADDER[0] : me ? this.saved.weapon : PICKABLE[Math.floor(rnd() * PICKABLE.length)];
+      const w = mode.gun ? LADDER[0] : START_WEAPON; void rnd;
       const bots = BOT_ABILITIES(!!mode.gun);
       let ab = me ? this.saved.ability : bots[Math.floor(rnd() * bots.length)];
       if (mode.gun && ab === 'spikes') { ab = 'dash'; if (me) setTimeout(() => this.hud.toast('Spikes is off in Gun Game (it is the last weapon), so you have Dash'), 1200); }
@@ -351,10 +379,11 @@ export class Game {
     } else if (!b.human && this.mode.waves) {
       const pool = this.director.guns(this.wv.n);
       setWeapon(b, b.boss ? 'rocket' : pool[(Math.random() * pool.length) | 0]);
+      b.reserve = -1;   // wave bots bring their own ammo
       b.ability = b.boss ? 'shockwave' : AIDS[(Math.random() * AIDS.length) | 0];
-    } else if (!b.human) { setWeapon(b, PICKABLE[(Math.random() * PICKABLE.length) | 0]); b.ability = AIDS[(Math.random() * AIDS.length) | 0]; }
+    } else if (!b.human) { setWeapon(b, START_WEAPON); b.ability = AIDS[(Math.random() * AIDS.length) | 0]; }
     else if (b.isPlayer) {
-      if (b.weapon !== this.pendingWeapon) setWeapon(b, this.pendingWeapon); else { b.ammo = WEAPONS[b.weapon].clip; b.reloadT = 0; }
+      setWeapon(b, START_WEAPON);
       if (b.ability !== this.pendingAbility) { b.ability = this.pendingAbility; b.abCool = 0; }
     }
     b.x = best.x; b.z = best.z; b.vx = b.vz = 0; b.y = b.gy = this.arena.floorAt(best.x, best.z); b.vy = 0;
@@ -424,23 +453,52 @@ export class Game {
     const x1 = x0 + b.aimX * R, z1 = z0 + b.aimZ * R;
     let t = this.arena.raycast(x0, z0, x1, z1, y, false, CLIMB); if (t < 0) t = 1;
     const ex = x0 + (x1 - x0) * t, ez = z0 + (z1 - z0) * t;
-    this.fx.beam(x0, y, z0, ex, ez, w.color);
+    this.fx.beam(x0, y, z0, ex, ez, w.color, w.linger ? w.linger.t : 0.35);
     for (let k = 0; k < 4; k++) this.fx.glow(ex, y, ez, (Math.random() - 0.5) * 6, Math.random() * 3, (Math.random() - 0.5) * 6, 0.07, w.color, 0.3, 10);
     if (!b.local) return;
     const sdx = ex - x0, sdz = ez - z0, l2 = sdx * sdx + sdz * sdz || 1;
+    const hitSet = new Set<number>();
+    if (w.linger) this.rails.push({ owner: b.id, x0, z0, x1: ex, z1: ez, y, t: w.linger.t, hit: hitSet });
     for (const v of this.babos) {
       if (v === b || !v.alive || !this.canDamage(b, v)) continue;
       const u = ((v.x - x0) * sdx + (v.z - z0) * sdz) / l2; if (u < 0 || u > 1) continue;
       const px = x0 + sdx * u, pz = z0 + sdz * u;
       if (Math.hypot(v.x - px, v.z - pz) > v.rad + 0.1) continue;
-      this.hit(b, v, w.damage, b.aimX * w.knock, b.aimZ * w.knock, 2);
+      this.hit(b, v, w.damage, b.aimX * w.knock, b.aimZ * w.knock, 2); hitSet.add(v.id);
       for (let k = 0; k < 6; k++) this.fx.bit(v.x, v.y + 0.5, v.z, b.aimX * 6 + (Math.random() - 0.5) * 4, 2 + Math.random() * 3, b.aimZ * 6 + (Math.random() - 0.5) * 4, 0.07, v.color, 0.7);
+    }
+  }
+
+  /** Lingering railgun beams: anyone rolling into one takes a smaller hit (once per beam). Owner decides. */
+  private stepRails(dt: number) {
+    for (let i = this.rails.length - 1; i >= 0; i--) {
+      const r = this.rails[i]; r.t -= dt;
+      if (r.t <= 0) { this.rails.splice(i, 1); continue; }
+      const att = this.babos[r.owner]; if (!att || !att.local) continue;
+      const sdx = r.x1 - r.x0, sdz = r.z1 - r.z0, l2 = sdx * sdx + sdz * sdz || 1;
+      for (const v of this.babos) {
+        if (v === att || !v.alive || r.hit.has(v.id) || !this.canDamage(att, v)) continue;
+        if (Math.abs(v.y + 0.55 - r.y) > 1.35) continue;
+        const u = ((v.x - r.x0) * sdx + (v.z - r.z0) * sdz) / l2; if (u < 0 || u > 1) continue;
+        if (Math.hypot(v.x - (r.x0 + sdx * u), v.z - (r.z0 + sdz * u)) > v.rad + 0.05) continue;
+        r.hit.add(v.id);
+        const l = Math.sqrt(l2), lw = WEAPONS.railgun.linger!;
+        this.hit(att, v, lw.damage, (sdx / l) * 3, (sdz / l) * 3, 1);
+        this.fx.flash(v.x, v.y + 0.6, v.z, WEAPONS.railgun.color, 8, 0.12);
+        this.audio.play('stab', v.x, v.z, 0.6);
+      }
     }
   }
 
   reload(b: Babo) {
     const w = WEAPONS[b.weapon];
     if (b.reloadT > 0 || b.ammo >= w.clip) return;
+    if (b.reserve === 0) {
+      if (b.ammo > 0) return;
+      // power weapon run dry: back to the pistol
+      if (b.isPlayer) this.hud.toast(`Out of ${w.name.toLowerCase()}`);
+      setWeapon(b, START_WEAPON); b.cool = 0.3; return;
+    }
     b.reloadT = w.reload;
     if (b.isPlayer) this.audio.play('reload');
   }
@@ -512,6 +570,12 @@ export class Game {
       this.hud.banner(msgs[Math.min(5, k.streak)] ?? `POPPED ${v.name.toUpperCase()}`, !msgs[Math.min(5, k.streak)]);
     }
     if (this.mode.waves) this.waveDeath(v);
+    // drop the gun: anyone can grab it for a few seconds (runs on every client, so no message needed)
+    if (!this.mode.gun && v.weapon !== START_WEAPON && WEAPONS[v.weapon].kind !== 'melee' && (this.state === 'playing')) {
+      const drops = this.pickups.filter(p => p.drop);
+      if (drops.length >= GUN_RESPAWN.maxDrops) this.removePickup(drops[0]);
+      this.addGun(v.weapon, v.x, v.z, `${v.id}:${v.deaths}`);
+    }
     if (v.isPlayer) this.hud.onPlayerDeath(k && k !== v ? k : null);
     if (v.gy < 0.1) this.arena.splat(v.x, v.z, 1.1 + Math.random() * 0.4, v.color);
     this.audio.play('pop', v.x, v.z);
@@ -663,7 +727,14 @@ export class Game {
         continue;
       }
       b.cool -= dt; b.nadeCool -= dt; b.spawnShield = Math.max(0, b.spawnShield - dt);
-      if (b.reloadT > 0) { b.reloadT -= dt; if (b.reloadT <= 0) { b.ammo = WEAPONS[b.weapon].clip; if (b.isPlayer) this.audio.play('reload'); } }
+      if (b.reloadT > 0) {
+        b.reloadT -= dt;
+        if (b.reloadT <= 0) {
+          const need = WEAPONS[b.weapon].clip - b.ammo, take = b.reserve < 0 ? need : Math.min(need, b.reserve);
+          b.ammo += take; if (b.reserve > 0) b.reserve -= take;
+          if (b.isPlayer) this.audio.play('reload');
+        }
+      }
       if (b.hp > b.maxHp) b.hp = Math.max(b.maxHp, b.hp - dt * 3);
       if (this.state === 'countdown') { b.moveX = b.moveZ = 0; b.fire = false; b.wantAbility = false; }
       else if (b.isPlayer) this.input.apply(b);
@@ -693,6 +764,7 @@ export class Game {
       }
     }
     this.stepShots(dt);
+    this.stepRails(dt);
     this.stepNades(dt);
     this.stepPickups(dt);
   }
@@ -861,6 +933,13 @@ export class Game {
   }
 
   stepPickups(dt: number) {
+    for (const p of [...this.pickups]) {
+      if (p.ttl !== undefined) {
+        p.ttl -= dt;
+        if (p.ttl <= 0) { this.removePickup(p); continue; }
+        p.mesh.visible = p.ttl > 3 || Math.sin(p.ttl * 18) > -0.2;   // blink before vanishing
+      }
+    }
     this.pickups.forEach((p, idx) => {
       const item = p.mesh.userData.item as THREE.Object3D;
       if (p.t > 0) { p.t -= dt; item.visible = false; if (p.t <= 0) { this.fx.ring(p.x, p.z, 1, 0xffffff, 0.3); } return; }
@@ -868,6 +947,19 @@ export class Game {
       item.rotation.y += dt * 2; item.position.y = 0.75 + Math.sin(this.clock * 3 + p.x) * 0.12;
       for (const b of this.babos) {
         if (!b.local || !b.alive || Math.hypot(b.x - p.x, b.z - p.z) > 0.95) continue;
+        if (p.kind === 'weapon') {
+          if (this.mode.waves && !b.human) continue;   // wave bots keep the guns they came with
+          const w = WEAPONS[p.w!];
+          if (b.weapon === p.w) {
+            const full = b.ammo >= w.clip && (b.reserve < 0 || b.reserve >= (w.ammo ?? 0) - w.clip);
+            if (full) continue;
+            b.ammo = w.clip; b.reloadT = 0; if (w.ammo !== undefined) b.reserve = w.ammo - w.clip;
+          } else { setWeapon(b, p.w!); b.cool = 0.2; }
+          this.takePickup(idx);
+          if (this.online) this.net.send(p.drop ? { k: 'pick', i: -1, d: p.drop } : { k: 'pick', i: idx });
+          if (b.isPlayer) this.hud.toast(`${w.name}${w.ammo ? ` (${w.ammo} shots)` : ''}`);
+          break;
+        }
         if (p.kind === 'health' && b.hp >= BALL.hp) continue;
         if (p.kind === 'nades' && b.nades >= GRENADE.max) continue;
         if (p.kind === 'health') b.hp = Math.min(BALL.hp, b.hp + 35);
@@ -883,9 +975,21 @@ export class Game {
 
   private takePickup(idx: number) {
     const p = this.pickups[idx]; if (!p || p.t > 0) return;
+    if (p.kind === 'weapon') {
+      const w = WEAPONS[p.w!];
+      this.audio.play('reload', p.x, p.z); this.audio.play('pickup', p.x, p.z, 0.6);
+      for (let k = 0; k < 10; k++) { const a = Math.random() * Math.PI * 2; this.fx.glow(p.x, 0.8 + p.mesh.position.y, p.z, Math.cos(a) * 2, 2 + Math.random() * 2, Math.sin(a) * 2, 0.07, w.color, 0.4, 3); }
+      if (p.drop) this.removePickup(p); else p.t = w.ammo ? GUN_RESPAWN.power : GUN_RESPAWN.normal;
+      return;
+    }
     p.t = RESPAWN[p.kind];
     this.audio.play(p.kind === 'nades' ? 'pickup' : 'heal', p.x, p.z);
     for (let k = 0; k < 10; k++) { const a = Math.random() * Math.PI * 2; this.fx.glow(p.x, 0.8, p.z, Math.cos(a) * 2, 2 + Math.random() * 2, Math.sin(a) * 2, 0.07, p.kind === 'nades' ? 0x7dff9a : p.kind === 'mega' ? 0xffd84a : 0xff6a6a, 0.4, 3); }
+  }
+
+  private removePickup(p: Pickup) {
+    const i = this.pickups.indexOf(p); if (i < 0) return;
+    this.r.scene.remove(p.mesh); this.pickups.splice(i, 1);
   }
 
   // ---------- online ----------
@@ -1019,7 +1123,7 @@ export class Game {
         this.explode(e.x, e.z, e.o, e.r, 0, 0, false, e.y ?? 0);
         break;
       }
-      case 'pick': this.takePickup(e.i); break;
+      case 'pick': if (e.d) { const i = this.pickups.findIndex(p => p.drop === e.d); if (i >= 0) this.takePickup(i); } else this.takePickup(e.i); break;
     }
   }
 
@@ -1284,6 +1388,20 @@ const ringMats: Record<PickKind, THREE.Material> = {
   nades: new THREE.MeshBasicMaterial({ color: new THREE.Color(0x3ee08f).multiplyScalar(1.6), toneMapped: false }),
   mega: new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffc83a).multiplyScalar(1.6), toneMapped: false }),
 };
+
+const gunRingMats = new Map<number, THREE.Material>();
+/** A gun lying on a pad, ringed in the gun's colour. Power weapons get a gold pad. */
+function gunPickupMesh(w: WeaponId) {
+  const def = WEAPONS[w], g = new THREE.Group();
+  const base = new THREE.Mesh(baseGeo, def.ammo ? megaMat : baseMat); base.position.y = 0.04; base.receiveShadow = true; g.add(base);
+  let rm = gunRingMats.get(def.color);
+  if (!rm) { rm = new THREE.MeshBasicMaterial({ color: new THREE.Color(def.color).multiplyScalar(1.8), toneMapped: false }); gunRingMats.set(def.color, rm); }
+  const ring = new THREE.Mesh(ringGeo, rm); ring.rotation.x = Math.PI / 2; ring.position.y = 0.09; g.add(ring);
+  const item = new THREE.Group(); const gun = buildGun(w, def.color); gun.scale.setScalar(1.6); gun.position.z = -0.25; item.add(gun);
+  item.traverse(o => { if ((o as THREE.Mesh).isMesh) o.castShadow = true; });
+  item.position.y = 0.75; g.add(item); g.userData.item = item;
+  return g;
+}
 
 function pickupMesh(kind: PickKind) {
   const g = new THREE.Group();

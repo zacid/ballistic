@@ -211,6 +211,10 @@ body.touch #wpn { left: auto; right: calc(14px + var(--sa-r)); transform: none; 
 .lobby-opts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .lobby-opts .seg button { padding: 5px 4px; font-size: 13px; }
 .kit-note { font-style: normal; font-size: 13px; font-weight: 700; color: var(--muted); padding: 4px 0; }
+#cards .card.info { cursor: default; transform: none; }
+#cards .card.info:hover { transform: none; }
+.card .key.power { background: #ffd84a; }
+.ammo-res { margin-left: 6px; font: 700 14px var(--ui); color: #ffd84a; }
 #feed .spiked span { color: #ff8a8a; font-weight: 900; }
 #row2 { display: flex; gap: 28px; flex-wrap: wrap; justify-content: center; }
 #swatches { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
@@ -401,7 +405,7 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
       <div><div class="kit-label">BOTS</div><div class="seg" id="lobby-difficulty-seg"></div></div>
       <div><div class="kit-label">ARENA</div><div class="seg" id="lobby-map-seg"></div></div>
     </div>
-    <div class="kit-label">YOUR LOADOUT</div>
+    <div class="kit-label">YOUR ABILITY</div>
     <div class="kit" id="lobby-kit"></div>
     <ol class="tip steps" id="lobby-steps">
       <li>Press <b>Create invite link</b>.</li>
@@ -415,7 +419,7 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
 <div id="pause" class="screen">
   <h1 id="pause-title">PAUSED</h1>
   <div id="pause-note" class="shadowtext"></div>
-  <div class="pill kit-card"><div class="kit-label">LOADOUT <span>changes apply on your next respawn</span></div><div class="kit" id="pause-kit"></div></div>
+  <div class="pill kit-card"><div class="kit-label">ABILITY <span>changes on your next respawn</span></div><div class="kit" id="pause-kit"></div></div>
   <button class="big-btn" id="resume">RESUME</button>
   <button class="ghost-btn" id="quit">QUIT TO MENU</button>
 </div>
@@ -430,7 +434,7 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
   <table class="board"><thead><tr><th>#</th><th>BALL</th><th id="result-mid">POPS</th><th>POPPED</th></tr></thead><tbody id="result-table"></tbody></table>
   <button class="big-btn" id="again">PLAY AGAIN</button>
   <button class="ghost-btn" id="to-lobby" hidden>BACK TO LOBBY</button>
-  <button class="ghost-btn" id="to-menu">CHANGE LOADOUT</button>
+  <button class="ghost-btn" id="to-menu">MAIN MENU</button>
 </div>
 
 <div id="toast" class="pill"></div>

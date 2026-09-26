@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Game } from './game';
 import type { Babo } from './babo';
-import { ONLINE_URL, ABILITIES, AbilityId, BALL, COLORS, DIFFICULTY, Difficulty, GRENADE, LADDER, MAPS, MapChoice, ModeId, MODES, PICKABLE, WEAPONS, WeaponId } from './config';
+import { ONLINE_URL, ABILITIES, AbilityId, BALL, COLORS, DIFFICULTY, Difficulty, GRENADE, LADDER, MAPS, MapChoice, ModeId, MODES, PICKABLE, START_WEAPON, WEAPONS, WeaponId } from './config';
 import { QUALITY, Quality } from './render';
 import type { RenderFlags } from './render';
 
@@ -83,10 +83,9 @@ export class Hud {
     const bar = (label: string, v: number) => `<div class="stat"><span>${label}</span><i><b style="width:${Math.round(v * 100)}%"></b></i></div>`;
     for (const w of PICKABLE.map(id => WEAPONS[id])) {
       const c = document.createElement('button');
-      c.className = 'card' + (w.id === this.g.saved.weapon ? ' on' : ''); c.dataset.id = w.id;
-      c.setAttribute('aria-pressed', String(w.id === this.g.saved.weapon));
-      c.innerHTML = `<div class="key">${PICKABLE.indexOf(w.id) + 1}</div><h2>${w.name}</h2><p>${w.blurb}</p>${bar('POWER', w.stats.power)}${bar('RANGE', w.stats.range)}${bar('FIRE RATE', w.stats.rate)}`;
-      c.addEventListener('click', () => { this.g.audio.unlock(); this.g.audio.play('click'); this.g.saved.weapon = w.id; this.g.pendingWeapon = w.id; this.g.save(); this.buildMenu(); });
+      c.className = 'card info'; c.dataset.id = w.id; c.tabIndex = -1;
+      const tag = w.id === START_WEAPON ? 'START' : w.ammo ? `${w.ammo} SHOTS` : 'PICK UP';
+      c.innerHTML = `<div class="key${w.ammo ? ' power' : ''}">${tag}</div><h2 style="color:${hex(w.color)}">${w.name}</h2><p>${w.blurb}</p>${bar('POWER', w.stats.power)}${bar('RANGE', w.stats.range)}${bar('FIRE RATE', w.stats.rate)}`;
       cards.appendChild(c);
     }
     const ab = $('abilities'); ab.innerHTML = '';
@@ -118,7 +117,7 @@ export class Hud {
     $('tagline').textContent = gg ? 'Gun Game: every pop moves you up a weapon. Pop someone with spikes to win.'
       : sm === 'waves' ? `Hold the Fort: survive the waves from the keep.${this.g.saved.bestWave ? ` Best: wave ${this.g.saved.bestWave}.` : ''}`
       : 'Eight toy balls, six guns, one arena. First to 20 pops wins.';
-    $('cards-label').textContent = gg ? 'PICK YOUR GUN (FOR FREE-FOR-ALL)' : 'PICK YOUR GUN';
+    $('cards-label').textContent = gg ? 'THE GUNS (GUN GAME HANDS THEM OUT IN ORDER)' : 'THE GUNS: START WITH A PISTOL, ROLL OVER THE REST TO PICK THEM UP';
     $('best').textContent = this.g.saved.best ? `Best finish: ${ordinal(this.g.saved.best)}` : '';
   }
 
@@ -167,9 +166,8 @@ export class Hud {
   renderKit(id: string) {
     const el = $(id); const g = this.g;
     const inMatch = g.state === 'countdown' || g.state === 'playing';
-    const gunLocked = inMatch && g.mode?.gun;
-    el.innerHTML = (gunLocked ? `<div class="kit-row"><em class="kit-note">Gun Game picks your gun for you</em></div>` : `<div class="kit-row">${PICKABLE.map(id => WEAPONS[id]).map(w => `<button data-w="${w.id}" class="${w.id === g.saved.weapon ? 'on' : ''}">${w.name}</button>`).join('')}</div>`)
-      + `<div class="kit-row">${Object.values(ABILITIES).map(a => `<button data-a="${a.id}" class="${a.id === g.saved.ability ? 'on' : ''}">${a.name}<small>${a.cooldown}s</small></button>`).join('')}</div>`;
+    void inMatch;
+    el.innerHTML = `<div class="kit-row">${Object.values(ABILITIES).map(a => `<button data-a="${a.id}" class="${a.id === g.saved.ability ? 'on' : ''}">${a.name}<small>${a.cooldown}s</small></button>`).join('')}</div>`;
     el.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
       g.audio.play('click');
       const w = (b as HTMLElement).dataset.w as WeaponId | undefined, a = (b as HTMLElement).dataset.a as AbilityId | undefined;
@@ -257,7 +255,6 @@ export class Hud {
     $('ab-name').textContent = ABILITIES[this.g.player.ability].name;
     $('hints').classList.remove('fade'); setTimeout(() => $('hints').classList.add('fade'), 15000);
     $('mode-tag').textContent = this.g.online ? `${this.g.mode.name} online` : '';
-    this.pickWeapon(this.g.saved.weapon, true);
   }
 
   pickWeapon(w: WeaponId, silent = false) {
@@ -299,7 +296,7 @@ export class Hud {
     $('result-title').className = won ? '' : 'lose';
     $('again').textContent = g.online ? 'REMATCH' : 'PLAY AGAIN';
     $('to-lobby').hidden = !g.online;
-    $('to-menu').textContent = g.online ? 'LEAVE' : 'CHANGE LOADOUT';
+    $('to-menu').textContent = g.online ? 'LEAVE' : 'MAIN MENU';
     $('result-mid').textContent = g.mode.gun ? 'LEVEL' : 'POPS';
     $('result-table').innerHTML = ranked.map((b, i) =>
       `<tr class="${b.isPlayer ? 'me' : ''}"><td>${i + 1}</td><td><i style="background:${hex(b.color)}"></i>${esc(this.g.nameOf(b))}</td><td>${g.mode.gun ? lvl(b) : b.kills}</td><td>${b.deaths}</td></tr>`).join('');
@@ -426,7 +423,7 @@ export class Hud {
     $('hp-over').style.transform = `scaleX(${p.alive ? Math.max(0, (p.hp - BALL.hp) / 50) : 0})`;
     $('hp').classList.toggle('low', p.alive && p.hp < 30);
     const w = WEAPONS[p.weapon];
-    const key = `${p.weapon}|${p.ammo}|${p.reloadT > 0}|${p.nades}`;
+    const key = `${p.weapon}|${p.ammo}|${p.reloadT > 0}|${p.nades}|${p.reserve}`;
     if (key !== this.lastAmmoKey) {
       this.lastAmmoKey = key;
       $('wpn-name').textContent = w.name;
@@ -434,6 +431,7 @@ export class Hud {
       if (w.kind === 'lob' || w.kind === 'melee') pips.innerHTML = `<span class="ammo-n">&infin;</span>`;
       else if (w.clip <= 8) pips.innerHTML = Array.from({ length: w.clip }, (_, i) => `<i class="${i < p.ammo ? 'on' : ''}"></i>`).join('');
       else pips.innerHTML = `<div class="ammo-bar"><b style="transform:scaleX(${p.ammo / w.clip})"></b></div><span class="ammo-n">${p.ammo}</span>`;
+      if (p.reserve >= 0) pips.insertAdjacentHTML('beforeend', `<span class="ammo-res">+${p.reserve}</span>`);
       $('nades').innerHTML = Array.from({ length: GRENADE.max }, (_, i) => `<i class="${i < p.nades ? 'on' : ''}"></i>`).join('');
     }
     // ability
@@ -454,7 +452,7 @@ export class Hud {
     if (!p.alive && g.state === 'playing') {
       const out = g.mode.waves && g.wv.out.has(p.id);
       $('dead-t').textContent = out ? (g.wv.breakT > 0 ? 'Back any second' : 'Out until the next wave') : `Back in ${Math.max(0, p.respawnT).toFixed(1)}s`;
-      $('dead-next').textContent = `Respawning with ${WEAPONS[g.pendingWeapon].name} + ${ABILITIES[g.pendingAbility].name}. ${g.mode.gun ? 'P to change ability.' : 'Press 1-6 to switch gun, P to change ability.'}`;
+      $('dead-next').textContent = `Respawning with ${g.mode.gun ? WEAPONS[LADDER[Math.min(p.tier, LADDER.length - 1)]].name : WEAPONS[START_WEAPON].name} + ${ABILITIES[g.pendingAbility].name}. P to change ability.`;
     } else $('dead').classList.remove('show');
 
     // ping to the other player (online only)

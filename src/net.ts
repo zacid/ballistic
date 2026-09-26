@@ -18,7 +18,7 @@ export type NetEvent =
   | { k: 'die'; v: number; by: number }
   | { k: 'nade'; o: number; x: number; y: number; z: number; vx: number; vy: number; vz: number }
   | { k: 'boom'; o: number; x: number; z: number; r: number; y?: number }
-  | { k: 'pick'; i: number };
+  | { k: 'pick'; i: number; d?: string };
 
 export interface StartOffer { e: number; mode: ModeId; seed: number; guest: string; roster: RosterEntry[]; diff: string; map?: string }
 export interface RosterEntry { id: number; name: string; color: number; team: number; human: boolean; peer?: string }

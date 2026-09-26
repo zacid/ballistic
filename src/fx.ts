@@ -73,7 +73,7 @@ export class Fx {
   }
 
   /** Railgun beam from a to b, fading out. */
-  beam(x0: number, y: number, z0: number, x1: number, z1: number, color: number) {
+  beam(x0: number, y: number, z0: number, x1: number, z1: number, color: number, dur = 0.35) {
     let best = this.beams[0];
     for (const b of this.beams) if (b.life <= 0) { best = b; break; } else if (b.life < best.life) best = b;
     const len = Math.hypot(x1 - x0, z1 - z0) || 0.01;
@@ -81,7 +81,7 @@ export class Fx {
     best.m.rotation.set(0, Math.atan2(x1 - x0, z1 - z0), 0);
     best.m.scale.set(0.09, 0.09, len);
     (best.m.material as THREE.MeshBasicMaterial).color.set(color).multiplyScalar(2.5);
-    best.life = best.max = 0.35; best.m.visible = true;
+    best.life = best.max = dur; best.m.visible = true;
     // sparkles along the beam
     const n = Math.min(30, Math.floor(len * 1.5));
     for (let i = 0; i < n; i++) {
@@ -161,7 +161,7 @@ export class Fx {
       if (b.life <= 0) { b.m.visible = false; continue; }
       b.life -= dt; const k = Math.max(0, b.life / b.max);
       (b.m.material as THREE.MeshBasicMaterial).opacity = k;
-      b.m.scale.x = b.m.scale.y = 0.02 + 0.09 * k;
+      b.m.scale.x = b.m.scale.y = 0.02 + 0.09 * Math.sqrt(k);
     }
     for (const r of this.rings) {
       if (r.life <= 0) { r.m.visible = false; continue; }

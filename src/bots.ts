@@ -1,7 +1,7 @@
 import type { Game } from './game';
 import { CLIMB } from './arena';
 import type { Babo } from './babo';
-import { BALL, GRENADE, WEAPONS } from './config';
+import { BALL, GRENADE, START_WEAPON, WEAPONS } from './config';
 
 interface Brain {
   target: number;          // babo id or -1
@@ -63,7 +63,9 @@ export function thinkBot(g: Game, b: Babo, dt: number, diff: { react: number; ai
   // --- movement goal
   let mx = 0, mz = 0;
   const wantHealth = b.hp < 45;
-  if (tAlive && visible && !wantHealth) {
+  // a gun lying close by is worth breaking off a pistol duel for
+  const grab = b.weapon === START_WEAPON && !g.mode.gun && !g.mode.waves && dist > 3.5 && !!nearestPickup(g, b, ['weapon'], 8);
+  if (tAlive && visible && !wantHealth && !grab) {
     const dx = (t.x - b.x) / dist, dz = (t.z - b.z) / dist;
     const pref = w.kind === 'melee' ? 0 : w.preferred;
     let fwd = dist > pref + 1.2 ? 1 : dist < pref - 1.2 ? -0.8 : 0;
@@ -79,7 +81,10 @@ export function thinkBot(g: Game, b: Babo, dt: number, diff: { react: number; ai
       let gx: number, gz: number;
       const hp = wantHealth ? nearestPickup(g, b, ['health', 'mega']) : null;
       const nd = b.nades < 2 && Math.random() < 0.3 ? nearestPickup(g, b, ['nades']) : null;
+      // stuck with the starting pistol: go and get a real gun
+      const gun = b.weapon === START_WEAPON && !g.mode.gun && !g.mode.waves ? nearestPickup(g, b, ['weapon'], 22) : null;
       if (hp) { gx = hp.x; gz = hp.z; }
+      else if (gun) { gx = gun.x; gz = gun.z; }
       else if (tAlive && g.clock - br.lastSeenT < 4) { gx = br.lastSeenX; gz = br.lastSeenZ; }
       else if (tAlive) { gx = t.x; gz = t.z; }
       else if (nd) { gx = nd.x; gz = nd.z; }
@@ -178,8 +183,8 @@ export function thinkBot(g: Game, b: Babo, dt: number, diff: { react: number; ai
   if (((b.abT > 0 && b.ability === 'spikes') || w.kind === 'melee') && tAlive && visible && dist < 6) { b.moveX = (t.x - b.x) / dist; b.moveZ = (t.z - b.z) / dist; }
 }
 
-function nearestPickup(g: Game, b: Babo, kinds: string[]) {
-  let best: { x: number; z: number } | null = null, bd = 16;
+function nearestPickup(g: Game, b: Babo, kinds: string[], range = 16) {
+  let best: { x: number; z: number } | null = null, bd = range;
   for (const p of g.pickups) {
     if (p.t > 0 || !kinds.includes(p.kind)) continue;
     const d = Math.hypot(p.x - b.x, p.z - b.z);
