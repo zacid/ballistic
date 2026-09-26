@@ -19,10 +19,10 @@ await A.waitForFunction(() => !document.getElementById('invite-row').hidden, nul
 const B = await mk('B', await A.inputValue('#invite-link'));
 await A.waitForFunction(() => window.__game.net.others().length > 0, null, { timeout: 40000 });
 await A.waitForTimeout(600);
-await A.click('#lobby-map-seg button:nth-child(4)');   // Towers
+await A.click('#lobby-map-seg button:nth-child(3)');   // Towers
 await A.click('#lobby-ggduel');
 await B.waitForFunction(() => window.__game.state === 'playing', null, { timeout: 30000 });
-const st = p => p.evaluate(() => { const g = window.__game; return `${g.state} mode=${g.mode.id} map=${g.map} e=${g.epoch} ` + g.babos.map(b => `${b.name}${b.local ? 'L' : 'R'}:L${b.tier + 1}.${b.tierKills}${b.won ? '*' : ''}/${b.weapon}`).join(' '); });
+const st = p => p.evaluate(() => { const g = window.__game; return `${g.state} mode=${g.mode.id} map=${g.map} n=${g.arena.n} e=${g.epoch} ` + g.babos.map(b => `${b.name}${b.local ? 'L' : 'R'}:L${b.tier + 1}.${b.tierKills}${b.won ? '*' : ''}/${b.weapon}`).join(' '); });
 console.log('start A:', await st(A)); console.log('start B:', await st(B));
 // B gets popped by A four times: A should climb to level 3 (2 per tier)
 for (let i = 0; i < 4; i++) {

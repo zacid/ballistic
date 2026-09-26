@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Game } from './game';
 import type { Babo } from './babo';
-import { ONLINE_URL, ABILITIES, AbilityId, BALL, COLORS, DIFFICULTY, Difficulty, GRENADE, LADDER, MAPS, MapChoice, ModeId, MODES, PICKABLE, START_WEAPON, WEAPONS, WeaponId } from './config';
+import { ONLINE_URL, ABILITIES, AbilityId, BALL, COLORS, DIFFICULTY, Difficulty, GRENADE, LADDER, MAPS, MapChoice, ARENA_SIZES, ArenaSize, ModeId, MODES, PICKABLE, START_WEAPON, WEAPONS, WeaponId } from './config';
 import { QUALITY, Quality } from './render';
 import { buildGun } from './babo';
 import type { RenderFlags } from './render';
@@ -150,12 +150,23 @@ export class Hud {
         b.addEventListener('click', () => { this.g.audio.unlock(); this.g.audio.play('click'); this.g.saved.difficulty = d; this.g.save(); redraw(); });
         ds.appendChild(b);
       }
+      // Hold the Fort always plays on the Fort, so the solo arena picker locks while it's chosen
+      const locked = pre === '' && this.g.saved.soloMode === 'waves';
+      const cur: MapChoice = locked ? 'fort' : this.g.saved.map;
       const as = $(pre + 'map-seg'); as.innerHTML = '';
       for (const m of Object.keys(MAPS) as MapChoice[]) {
-        const b = document.createElement('button'); b.textContent = MAPS[m].name; b.title = MAPS[m].blurb;
-        b.className = m === this.g.saved.map ? 'on' : '';
+        const b = document.createElement('button'); b.textContent = MAPS[m].name; b.title = locked ? 'Hold the Fort always plays on the Fort' : MAPS[m].blurb;
+        b.className = m === cur ? 'on' : ''; b.disabled = locked;
         b.addEventListener('click', () => { this.g.audio.unlock(); this.g.audio.play('click'); this.g.saved.map = m; this.g.save(); redraw(); });
         as.appendChild(b);
+      }
+      const ss = $(pre + 'size-seg'); ss.innerHTML = '';
+      ss.hidden = cur !== 'random';
+      for (const z of Object.keys(ARENA_SIZES) as ArenaSize[]) {
+        const b = document.createElement('button'); b.textContent = ARENA_SIZES[z].name;
+        b.className = z === this.g.saved.arenaSize ? 'on' : '';
+        b.addEventListener('click', () => { this.g.audio.unlock(); this.g.audio.play('click'); this.g.saved.arenaSize = z; this.g.save(); redraw(); });
+        ss.appendChild(b);
       }
     }
   }

@@ -134,12 +134,14 @@ export const MODES: Record<ModeId, ModeDef> = {
   ggduel: { id: 'ggduel', name: 'Gun Game 1v1', blurb: 'Climb the weapon ladder: 2 pops per weapon, win with spikes.', bots: 0, limit: 8, time: 480, teams: false, size: 22, online: true, gun: true, perTier: 2 },
 };
 export const MAPS = {
-  auto: { name: 'Auto', blurb: 'Fort for co-op, random for the rest' },
-  random: { name: 'Random', blurb: 'A fresh arena every match' },
+  random: { name: 'Random', blurb: 'A freshly generated layout every match' },
   fort: { name: 'Fort', blurb: 'A raised keep with ramps and battlements' },
   towers: { name: 'Towers', blurb: 'Two raised towers in opposite corners' },
 } as const;
 export type MapChoice = keyof typeof MAPS;
+/** Size of a random arena, in cells (1.25 m each). The hand-made maps have fixed sizes. */
+export const ARENA_SIZES = { small: { name: 'Small', n: 22 }, medium: { name: 'Medium', n: 28 }, large: { name: 'Large', n: 34 } } as const;
+export type ArenaSize = keyof typeof ARENA_SIZES;
 /** Hold the Fort. Lives are shared by the defenders; a death with none left sits you out until the next wave. */
 export const WAVES = {
   lives: 3, livesDuo: 5, maxLives: 9, breakT: 6, firstBreak: 3,

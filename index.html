@@ -308,6 +308,11 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
 /* ---------- menu: setup row + arsenal ---------- */
 #setup { display: flex; gap: 22px; flex-wrap: wrap; justify-content: center; }
 #setup .seg button { padding: 6px 12px; white-space: nowrap; }
+.seg.sub { margin-top: 5px; }
+.seg.sub button { padding: 3px 8px; font-size: 13px; border-width: 2px; }
+.seg button:disabled { cursor: default; }
+.seg button.on:disabled { opacity: .85; }
+.seg button:disabled:not(.on) { opacity: .4; }
 #arsenal { margin-top: 22px; width: min(900px, 100%); padding: 12px 14px 12px; text-align: left; }
 .arsenal-head { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; margin-bottom: 8px; }
 .arsenal-head b { font: 400 16px var(--display); letter-spacing: 1px; color: var(--cream); }
@@ -386,7 +391,7 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
   <div id="tagline">Eight toy balls, one arena. First to 20 pops wins.</div>
   <div id="setup">
     <div><div class="label">SOLO MODE</div><div class="seg" id="solo-seg"></div></div>
-    <div><div class="label">ARENA</div><div class="seg" id="map-seg"></div></div>
+    <div><div class="label">ARENA</div><div class="seg" id="map-seg"></div><div class="seg sub" id="size-seg"></div></div>
     <div><div class="label">BOTS</div><div class="seg" id="difficulty-seg"></div></div>
   </div>
   <div class="label">SPACEBAR ABILITY</div>
@@ -425,7 +430,7 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
     </div>
     <div class="lobby-opts">
       <div><div class="kit-label">BOTS</div><div class="seg" id="lobby-difficulty-seg"></div></div>
-      <div><div class="kit-label">ARENA</div><div class="seg" id="lobby-map-seg"></div></div>
+      <div><div class="kit-label">ARENA</div><div class="seg" id="lobby-map-seg"></div><div class="seg sub" id="lobby-size-seg"></div></div>
     </div>
     <div class="kit-label">YOUR ABILITY</div>
     <div class="kit" id="lobby-kit"></div>

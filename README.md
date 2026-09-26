@@ -8,7 +8,7 @@ Rolling toy balls with guns. A top-down arena shooter in the spirit of Babo Viol
 - **Flamethrower:** short range, sets balls alight (afterburn) and leaves fire on the floor for a moment.
 - **Gravity gun:** hold to drag balls towards you, let go to fling them. Flung balls can't steer for a moment, and slamming into a wall hurts (credited to you).
 - **Mine (ability):** Space drops a proximity mine behind you; three at a time, arms after a second.
-- **Arenas:** a fresh random arena each match, or two hand-made ones with raised floors: **Fort** (a keep with ramps and battlements, the default for 2 vs bots) and **Towers** (two raised corner towers).
+- **Arenas:** **Random** (a freshly generated layout every match, small, medium or large), or two hand-made maps with raised floors: **Fort** (a keep with ramps and battlements; Hold the Fort always plays here) and **Towers** (two raised corner towers).
 
 ### Gun Game
 

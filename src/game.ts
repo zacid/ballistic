@@ -4,7 +4,7 @@ import { CLIMB, Arena, CELL } from './arena';
 import { Audio } from './audio';
 import { Babo, buildGun, makeBabo, setBoss, setTeamRing, setWeapon, updateBaboVisual } from './babo';
 import {
-  ABILITIES, AbilityId, BALL, BOSS, BOT_NAMES, BURN, GRAV, MINE, GUN_RESPAWN, MAP_GUNS, START_WEAPON, COLORS, DASH, DIFFICULTY, Difficulty, GRENADE, LADDER, MapChoice, MODES, ModeDef, ModeId,
+  ABILITIES, AbilityId, BALL, BOSS, BOT_NAMES, BURN, GRAV, MINE, GUN_RESPAWN, MAP_GUNS, START_WEAPON, COLORS, DASH, DIFFICULTY, Difficulty, GRENADE, LADDER, MapChoice, ArenaSize, ARENA_SIZES, MAPS, MODES, ModeDef, ModeId,
   PICKABLE, SPIKES, WAVE, WAVES, WEAPONS, WeaponId,
 } from './config';
 import type { MapId } from './arena';
@@ -42,7 +42,7 @@ const STORE = 'ballistic.v1';
 export interface Saved {
   weapon: WeaponId; ability: AbilityId; color: number; difficulty: Difficulty; quality: Quality | 'auto';
   muted: boolean; best?: number; perf?: boolean; nick: string;
-  soloMode: 'solo' | 'gungame' | 'waves'; map: MapChoice; bestWave?: number; music?: boolean; v2?: boolean;
+  soloMode: 'solo' | 'gungame' | 'waves'; map: MapChoice; arenaSize: ArenaSize; bestWave?: number; music?: boolean; v2?: boolean;
 }
 function load(): Saved {
   let s: Partial<Saved> = {};
@@ -51,7 +51,7 @@ function load(): Saved {
     // v2: Adaptive became the default (once), since it's the one that suits Hold the Fort
     weapon: s.weapon ?? 'shotgun', ability: s.ability ?? 'dash', color: s.color ?? 0, difficulty: (s as any).v2 ? s.difficulty ?? 'adaptive' : 'adaptive',
     quality: s.quality ?? 'auto', muted: !!s.muted, best: s.best, perf: s.perf, nick: s.nick ?? '',
-    soloMode: s.soloMode ?? 'solo', map: s.map ?? 'auto', bestWave: s.bestWave, music: s.music ?? true, v2: true,
+    soloMode: s.soloMode ?? 'solo', map: s.map && s.map in MAPS ? s.map : 'random', arenaSize: s.arenaSize ?? 'medium', bestWave: s.bestWave, music: s.music ?? true, v2: true,
   };
 }
 
@@ -175,7 +175,7 @@ export class Game {
 
   /** Which arena a mode plays on, given the player's map choice. */
   resolveMap(mode: ModeDef, choice: MapChoice = this.saved.map): MapId {
-    if (choice === 'auto' || mode.waves) return mode.map ?? 'random';
+    if (mode.waves) return 'fort';   // Hold the Fort is built around the keep
     return choice;
   }
 
@@ -192,7 +192,7 @@ export class Game {
     const cols = COLORS.filter((_, i) => i !== pc);
     const names = [...BOT_NAMES].sort(() => Math.random() - 0.5);
     for (let i = 0; i < mode.bots; i++) roster.push({ id: i + 1, name: names[i % names.length], color: cols[i % cols.length].hex, team: mode.teams ? 1 : i + 1, human: false });
-    this.begin(mode, (Math.random() * 1e9) | 0, roster, 0, this.resolveMap(mode));
+    this.begin(mode, (Math.random() * 1e9) | 0, roster, 0, this.resolveMap(mode), this.arenaN);
   }
 
   start() {
@@ -200,7 +200,10 @@ export class Game {
     this.startSolo();
   }
 
-  private begin(mode: ModeDef, seed: number, roster: RosterEntry[], myId: number, map: MapId = 'random') {
+  /** Cells across for a random arena, from the size picker. */
+  get arenaN() { return ARENA_SIZES[this.saved.arenaSize]?.n ?? 28; }
+
+  private begin(mode: ModeDef, seed: number, roster: RosterEntry[], myId: number, map: MapId = 'random', size = mode.size) {
     this.audio.unlock();
     for (const b of this.babos) this.r.scene.remove(b.root);
     for (const s of this.shots) if (s.mesh) this.r.scene.remove(s.mesh);
@@ -208,7 +211,7 @@ export class Game {
     for (const m of this.mines) this.r.scene.remove(m.mesh);
     this.babos = []; this.shots = []; this.nades = []; this.rails = []; this.mines = []; this.fires = [];
     this.mode = mode; this.seed = seed; this.endReason = ''; this.map = map;
-    this.newArena(mode.size, map);
+    this.newArena(size, map);
     this.fx.clear();
     const rnd = mulberry(seed ^ 0x5bd1e995);
     for (const e of roster) {
@@ -1262,12 +1265,12 @@ export class Game {
     const cols = COLORS.filter((_, i) => i !== myC && i !== theirC);
     const names = [...BOT_NAMES].sort(() => Math.random() - 0.5);
     for (let i = 0; i < mode.bots; i++) roster.push({ id: i + 2, name: names[i], color: cols[i % cols.length].hex, team: mode.teams ? 1 : i + 2, human: false });
-    const offer: StartOffer = { e: (Math.random() * 1e9) | 0, mode: modeId, seed: (Math.random() * 1e9) | 0, guest: friend.peer, roster, diff: this.saved.difficulty, map: this.resolveMap(mode) };
+    const offer: StartOffer = { e: (Math.random() * 1e9) | 0, mode: modeId, seed: (Math.random() * 1e9) | 0, guest: friend.peer, roster, diff: this.saved.difficulty, map: this.resolveMap(mode), n: this.arenaN };
     this.offer = offer; this.lastMode = modeId;
     this.net.clearMatch();
     this.net.set({ start: offer });
     this.online = true; this.host = true; this.partner = friend.peer; this.epoch = offer.e;
-    this.begin(mode, offer.seed, roster, 0, offer.map as MapId);
+    this.begin(mode, offer.seed, roster, 0, offer.map as MapId, offer.n);
   }
 
   /** Guest side: join when a friend's offer names us. Simultaneous offers: lower peer id hosts. */
@@ -1284,7 +1287,7 @@ export class Game {
       this.net.clearMatch();
       this.online = true; this.host = false; this.partner = p.peer; this.epoch = o.e;
       this.lastMode = o.mode;
-      this.begin(MODES[o.mode], o.seed, o.roster, 1, (o.map || 'random') as MapId);
+      this.begin(MODES[o.mode], o.seed, o.roster, 1, (o.map || 'random') as MapId, o.n ?? MODES[o.mode].size);
       return;
     }
   }
