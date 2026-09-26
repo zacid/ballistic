@@ -189,7 +189,7 @@ export class Game {
     this.online = false; this.host = true; this.partner = ''; this.epoch = 0;
     const mode = MODES[this.saved.soloMode] ?? MODES.solo;
     const pc = this.saved.color % COLORS.length;
-    const roster: RosterEntry[] = [{ id: 0, name: 'You', color: COLORS[pc].hex, team: 0, human: true }];
+    const roster: RosterEntry[] = [{ id: 0, name: 'You', color: COLORS[pc].hex, team: 0, human: true, sk: this.saved.ffaSkill }];
     const cols = COLORS.filter((_, i) => i !== pc);
     const names = [...BOT_NAMES].sort(() => Math.random() - 0.5);
     const nBots = mode.waves ? mode.bots : this.saved.botCount;   // wave slots are fixed; the director decides how many come
@@ -233,7 +233,11 @@ export class Game {
     this.wv = { n: 0, lives: humans > 1 ? WAVES.livesDuo : WAVES.lives, breakT: WAVES.firstBreak, queue: 0, total: 0, spawnT: 0, boss: -1, out: new Set(), cleared: false };
     this.director.reset(this.saved.difficulty);
     // solo matches against bots (not Hold the Fort, which has its own director): size bots to you
-    this.ffa.start(!this.online && !mode.waves && !mode.teams && this.saved.difficulty === 'adaptive', this.saved.ffaSkill);
+    // matches with bots (not Hold the Fort, which has its own director): size the bots to each human.
+    // The host runs it (bots live there); a guest mirrors the numbers from the host state.
+    const hasBots = roster.some(e => !e.human) && !mode.waves;
+    this.ffa.start(hasBots && this.host && this.saved.difficulty === 'adaptive',
+      roster.filter(e => e.human).map(e => ({ id: e.id, skill: e.id === myId ? this.saved.ffaSkill : e.sk, local: e.id === myId })));
     for (const b of this.babos) {
       this.r.scene.add(b.root);
       // Hold the Fort: the bots wait off-stage until their wave
@@ -341,6 +345,12 @@ export class Game {
     this.director.lifeLost();
     if (w.lives > 0) w.lives--;
     else { w.out.add(v.id); if (v.isPlayer) this.hud.toast('No lives left. You are back next wave'); }
+  }
+
+  /** Remember my adaptive rating for next time. */
+  private saveFfa() {
+    const s = this.ffa.skillOf(this.player.id); if (s === undefined) return;
+    this.saved.ffaSkill = Math.round(s * 100) / 100; this.save();
   }
 
   /** Bots sharpen up as the waves go on, and to match the defenders. */
@@ -685,8 +695,8 @@ export class Game {
   hit(att: Babo, v: Babo, dmg: number, kx: number, kz: number, vy = 0, flag = 0) {
     if (!att.local || !v.alive || !this.canDamage(att, v)) return;
     if (this.mode.waves && !att.human && v.human) dmg *= this.director.botDamage(this.wv.n);
-    if (this.ffa.active && v === this.player && !att.human) { dmg *= this.ffa.damage(); if (v.spawnShield <= 0) this.ffa.tookDamage(dmg); }
-    if (this.ffa.active && att === this.player && v !== att && v.spawnShield <= 0) this.ffa.dealtDamage(dmg);
+    if (this.ffa.has(v.id) && !att.human) { dmg *= this.ffa.damage(v.id); if (v.spawnShield <= 0) this.ffa.tookDamage(v.id, dmg); }
+    if (this.ffa.has(att.id) && v !== att && v.spawnShield <= 0 && !v.human) this.ffa.dealtDamage(att.id, dmg);
     if (flag & 1) { v.burnT = BURN.t; v.burnBy = att.id; }
     if (flag & 2) { v.flungT = 1; v.flungBy = att.id; }
     if (att.isPlayer && v !== att && v.spawnShield <= 0 && dmg >= 1) { this.hud.floater(v.x, v.z, Math.round(dmg * (v.abT > 0 && v.ability === 'bubble' ? 0.3 : 1))); this.audio.play('hit', undefined, undefined, 0.8); }
@@ -734,9 +744,9 @@ export class Game {
     }
     if (this.mode.waves) this.waveDeath(v);
     if (this.ffa.active) {
-      if (v === this.player) this.ffa.died();
-      else if (k === this.player) this.ffa.popped(k.streak);
-      this.saved.ffaSkill = Math.round(this.ffa.skill * 100) / 100; this.save();
+      if (this.ffa.has(v.id)) this.ffa.died(v.id);
+      else if (k && this.ffa.has(k.id)) this.ffa.popped(k.id, k.streak);
+      this.saveFfa();
     }
     // drop the gun: anyone can grab it for a few seconds (runs on every client, so no message needed)
     if (!this.mode.gun && v.weapon !== START_WEAPON && WEAPONS[v.weapon].kind !== 'melee' && (this.state === 'playing')) {
@@ -1226,7 +1236,7 @@ export class Game {
   }
 
   private joinPresence() {
-    this.net.set({ n: this.saved.nick || 'Player', c: this.saved.color, lob: 1, start: null, s: null, ev: null, h: null });
+    this.net.set({ n: this.saved.nick || 'Player', c: this.saved.color, sk: this.saved.ffaSkill ?? null, lob: 1, start: null, s: null, ev: null, h: null });
   }
 
   async createInvite(retry = 1) {
@@ -1272,7 +1282,7 @@ export class Game {
     let theirC = Number(friend.presence.c) % COLORS.length; if (!(theirC >= 0) || theirC === myC) theirC = (myC + 1) % COLORS.length;
     const roster: RosterEntry[] = [
       { id: 0, name: this.saved.nick || 'Player 1', color: COLORS[myC].hex, team: 0, human: true, peer: this.net.me },
-      { id: 1, name: String(friend.presence.n || 'Friend').slice(0, 16), color: COLORS[theirC].hex, team: mode.teams ? 0 : 1, human: true, peer: friend.peer },
+      { id: 1, name: String(friend.presence.n || 'Friend').slice(0, 16), color: COLORS[theirC].hex, team: mode.teams ? 0 : 1, human: true, peer: friend.peer, sk: typeof friend.presence.sk === 'number' ? friend.presence.sk : undefined },
     ];
     const cols = COLORS.filter((_, i) => i !== myC && i !== theirC);
     const names = [...BOT_NAMES].sort(() => Math.random() - 0.5);
@@ -1372,6 +1382,7 @@ export class Game {
       if (tier !== b.tier) { const up = tier > b.tier; b.tier = tier; if (b.local && b.alive) setWeapon(b, LADDER[tier]); if (up && b.isPlayer) this.onLevelUp(b); }
     });
     if (this.mode.waves && h.w) this.mirrorWaves(h.w);
+    if (h.f) { h.f.forEach((v, id) => { if (v > -999) this.ffa.mirror(id, v / 100); }); this.saveFfa(); }
     if (h.st === 'p' && this.state === 'countdown') this.go();
     if (h.st === 'o' && this.state !== 'over') this.end();
   }
@@ -1419,6 +1430,7 @@ export class Game {
     const h: HostState | null = this.host ? {
       e: this.epoch, st: this.state === 'countdown' ? 'c' : this.state === 'over' ? 'o' : 'p', t: Math.round(this.matchT * 10) / 10,
       k: this.babos.map(b => b.kills), d: this.babos.map(b => b.deaths),
+      ...(this.ffa.active ? { f: this.ffa.ratings(this.babos.length) } : {}),
       ...(this.mode.gun ? { g: this.babos.map(b => b.won ? 99 : b.tier * 10 + b.tierKills) } : {}),
       ...(this.mode.waves ? { w: [this.wv.n, this.wv.lives, Math.round(this.wv.breakT * 10), this.wv.queue + this.babos.filter(b => !b.human && b.alive).length, this.wv.boss, [...this.wv.out].reduce((m, id) => m | (1 << id), 0), Math.round(this.director.skill * 100), this.director.adaptive ? 1 : 0, this.director.trend, this.babos[this.wv.boss]?.maxHp ?? 0] } : {}),
     } : null;

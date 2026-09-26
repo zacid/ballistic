@@ -115,41 +115,53 @@ export class Director {
 // The rating sets how quickly and accurately bots shoot at you, how hard their hits land, and how keen
 // they are to pick you as a target. It's saved, so the next match starts where the last one ended.
 
+interface Form { skill: number; dealt: number; taken: number; windowT: number; trend: number; local: boolean }
+
 export class FfaDirector {
-  skill = 0;
+  /** Running (on the host / offline): drives the bots. */
   active = false;
-  private dealt = 0; private taken = 0; private windowT = 0;
-  trend = 0;
+  /** Guests don't run it but mirror the host's numbers for their threat meter. */
+  shown = false;
+  private f = new Map<number, Form>();
 
-  start(active: boolean, saved: number | undefined) {
-    this.active = active; this.skill = clamp(saved ?? -0.2, -1, 1.3);
-    this.dealt = this.taken = this.windowT = 0; this.trend = 0;
+  /** Track each human in the match. `local` humans' damage dealt is visible here; a guest's isn't. */
+  start(active: boolean, humans: { id: number; skill?: number; local: boolean }[]) {
+    this.active = active; this.shown = active; this.f.clear();
+    for (const h of humans) this.f.set(h.id, { skill: clamp(h.skill ?? -0.2, -1, 1.3), dealt: 0, taken: 0, windowT: 0, trend: 0, local: h.local });
   }
-  private nudge(d: number) { const b = this.skill; this.skill = clamp(this.skill + d, -1, 1.3); this.trend = Math.sign(this.skill - b); }
+  has(id: number) { return this.active && this.f.has(id); }
+  skillOf(id: number) { return this.f.get(id)?.skill; }
+  /** Guest: take the host's ratings. */
+  mirror(id: number, skill: number) { const f = this.f.get(id); if (f) f.skill = skill; else this.f.set(id, { skill, dealt: 0, taken: 0, windowT: 0, trend: 0, local: false }); this.shown = true; }
+  ratings(n: number) { return Array.from({ length: n }, (_, id) => { const f = this.f.get(id); return f ? Math.round(f.skill * 100) : -999; }); }
 
-  popped(streak: number) { if (this.active) this.nudge(0.05 + (streak >= 3 ? 0.03 : 0)); }
-  died() { if (this.active) this.nudge(-0.11); }
-  dealtDamage(d: number) { this.dealt += d; }
-  tookDamage(d: number) { this.taken += d; }
+  private nudge(id: number, d: number) { const f = this.f.get(id); if (!f) return; const b = f.skill; f.skill = clamp(f.skill + d, -1, 1.3); f.trend = Math.sign(f.skill - b); }
+  popped(id: number, streak: number) { if (this.active) this.nudge(id, 0.05 + (streak >= 3 ? 0.03 : 0)); }
+  died(id: number) { if (this.active) this.nudge(id, -0.11); }
+  dealtDamage(id: number, d: number) { const f = this.f.get(id); if (f) f.dealt += d; }
+  tookDamage(id: number, d: number) { const f = this.f.get(id); if (f) f.taken += d; }
   step(dt: number) {
     if (!this.active) return;
-    this.windowT += dt;
-    if (this.windowT < 15) return;
-    const r = (this.dealt + 20) / (this.taken + 20);   // the +20 keeps quiet stretches from swinging it
-    this.nudge(clamp((r - 1) * 0.06, -0.08, 0.05));
-    this.dealt = this.taken = this.windowT = 0;
+    for (const [id, f] of this.f) {
+      f.windowT += dt;
+      if (f.windowT < 15) continue;
+      // the damage balance only counts where we can see both sides of it (not a guest's own shots)
+      if (f.local) { const r = (f.dealt + 20) / (f.taken + 20); this.nudge(id, clamp((r - 1) * 0.06, -0.08, 0.05)); }
+      f.dealt = f.taken = f.windowT = 0;
+    }
   }
 
-  private get t() { return clamp((this.skill + 1) / 2.3, 0, 1); }
-  /** Bot skill when shooting at you (Easy-ish at the bottom, a bit past Hard at the top). */
-  aim(base: { react: number; aimErr: number; lead: number; nade: number }) {
-    if (!this.active) return base;
-    const t = this.t;
+  private t(id: number) { const f = this.f.get(id); return f ? clamp((f.skill + 1) / 2.3, 0, 1) : 0.5; }
+  /** Bot skill when shooting at this human (Easy-ish at the bottom, a bit past Hard at the top). */
+  aim(id: number, base: { react: number; aimErr: number; lead: number; nade: number }) {
+    if (!this.has(id)) return base;
+    const t = this.t(id);
     return { react: lerp(0.62, 0.15, t), aimErr: lerp(0.26, 0.05, t), lead: lerp(0.25, 1, t), nade: lerp(0.15, 1, t) };
   }
-  /** How hard bot hits on you land. */
-  damage() { return this.active ? lerp(0.6, 1.1, this.t) : 1; }
-  /** Added to a bot's target score for you (lower = more likely to be picked). */
-  targetBias() { return this.active ? lerp(3.5, -3, this.t) : 0; }
-  threat() { return clamp(Math.round(this.t * 4) + 1, 1, 5); }
+  /** How hard bot hits on this human land. */
+  damage(id: number) { return this.has(id) ? lerp(0.6, 1.1, this.t(id)) : 1; }
+  /** Added to a bot's target score for this human (lower = more likely to be picked). */
+  targetBias(id: number) { return this.has(id) ? lerp(3.5, -3, this.t(id)) : 0; }
+  threat(id: number) { return clamp(Math.round(this.t(id) * 4) + 1, 1, 5); }
+  showsFor(id: number) { return this.shown && this.f.has(id); }
 }

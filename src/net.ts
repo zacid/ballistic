@@ -21,8 +21,8 @@ export type NetEvent =
   | { k: 'pick'; i: number; d?: string };
 
 export interface StartOffer { e: number; mode: ModeId; seed: number; guest: string; roster: RosterEntry[]; diff: string; map?: string; n?: number }
-export interface RosterEntry { id: number; name: string; color: number; team: number; human: boolean; peer?: string }
-export interface HostState { e: number; st: 'c' | 'p' | 'o'; t: number; k: number[]; d: number[]; g?: number[]; w?: number[] }
+export interface RosterEntry { id: number; name: string; color: number; team: number; human: boolean; peer?: string; sk?: number }
+export interface HostState { e: number; st: 'c' | 'p' | 'o'; t: number; k: number[]; d: number[]; g?: number[]; w?: number[]; f?: number[] }
 
 export interface Peerish { peer: string; isMe: boolean; sameTab: boolean; presence: any; updatedAt: number }
 

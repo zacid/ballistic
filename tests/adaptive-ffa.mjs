@@ -10,7 +10,7 @@ for (const style of ['idle', 'strong', 'idle-again']) {
     const g = window.__game; g.saved.soloMode = 'solo'; g.saved.map = 'random'; g.saved.arenaSize = 'medium'; g.saved.botCount = 7; g.saved.difficulty = 'adaptive';
     if (style === 'idle') g.saved.ffaSkill = undefined;
     g.startSolo(); g.go();
-    const startSkill = g.ffa.skill; let tgt = 0, samples = 0;
+    const startSkill = g.ffa.skillOf(0); let tgt = 0, samples = 0;
     const idle = (bb) => { bb.moveX = bb.moveZ = 0; bb.fire = false; };
     for (let i = 0; i < 90 * 120 && g.state === 'playing'; i++) {
       if (style === 'strong') { g.player.isPlayer = false; if (g.player.alive) g.player.hp = Math.max(g.player.hp, 300); }
@@ -20,8 +20,8 @@ for (const style of ['idle', 'strong', 'idle-again']) {
     }
     g.player.isPlayer = true;
     g.tick(0.3, false); g.hud.update(0.3);
-    const f = g.ffa, aim = f.aim({ react: 0, aimErr: 0, lead: 0, nade: 0 });
-    const res = { style, active: f.active, skill: `${startSkill.toFixed(2)} -> ${f.skill.toFixed(2)}`, threat: f.threat(), botReact: aim.react.toFixed(2), botAimErr: aim.aimErr.toFixed(2), hitScale: f.damage().toFixed(2), playerDeaths: g.player.deaths, playerPops: g.player.kills, targetedPct: Math.round(100 * tgt / samples) + '%', saved: g.saved.ffaSkill, meter: !!document.querySelector('#race .threat') };
+    const f = g.ffa, aim = f.aim(0, { react: 0, aimErr: 0, lead: 0, nade: 0 });
+    const res = { style, active: f.active, skill: `${startSkill.toFixed(2)} -> ${f.skillOf(0).toFixed(2)}`, threat: f.threat(0), botReact: aim.react.toFixed(2), botAimErr: aim.aimErr.toFixed(2), hitScale: f.damage(0).toFixed(2), playerDeaths: g.player.deaths, playerPops: g.player.kills, targetedPct: Math.round(100 * tgt / samples) + '%', saved: g.saved.ffaSkill, meter: !!document.querySelector('#race .threat') };
     g.end(); return res;
   }, style);
   console.log(JSON.stringify(r));

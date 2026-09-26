@@ -385,8 +385,8 @@ export class Hud {
 
   /** Threat bars for adaptive solo matches (same look as Hold the Fort's). */
   private ffaMeter() {
-    const f = this.g.ffa; if (!f.active) return '';
-    const th = f.threat();
+    const f = this.g.ffa, me = this.g.player.id; if (!f.showsFor(me)) return '';
+    const th = f.threat(me);
     return `<span class="threat t${th}" title="How hard the bots go at you, sized to how you're playing">${'<b></b>'.repeat(th)}${'<i></i>'.repeat(5 - th)}</span>`;
   }
 
@@ -540,7 +540,7 @@ export class Hud {
       } else if (g.mode.teams) {
         const ts = g.teamScores(); const mine = ts[p.team] ?? 0;
         const theirs = Math.max(0, ...Object.entries(ts).filter(([k]) => Number(k) !== p.team).map(([, v]) => v));
-        $('race').innerHTML = `<b>${mine}</b><span>: ${theirs} &middot; to ${g.mode.limit}</span>`;
+        $('race').innerHTML = this.ffaMeter() + `<b>${mine}</b><span>: ${theirs} &middot; to ${g.mode.limit}</span>`;
       } else if (g.mode.gun) {
         const per = g.mode.perTier ?? 1, last = p.tier >= LADDER.length - 1;
         const need = last ? 'spikes to win!' : per > 1 ? `${per - p.tierKills} to next` : '';
