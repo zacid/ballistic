@@ -41,12 +41,15 @@ export class PeerRoom {
   /** Connection diagnostics for the lobby: ICE state and which candidate types each side found. */
   ice = { state: 'idle', local: '', remote: '', path: '' };
   private dialT = 0;
+  private timeoutMs = 15000;
 
-  constructor(role: 'host' | 'guest', code: string) {
+  constructor(role: 'host' | 'guest', code: string, iceServers?: RTCIceServer[], timeoutMs = 15000) {
+    this.timeoutMs = timeoutMs;
     this.role = role; this.code = code;
     this.me = { peer: 'me', isMe: true, sameTab: true, kind: 'viewer', guest: false, by: null, presence: {}, updatedAt: Date.now() };
     // tests can point at a local PeerJS server; real players use the free public broker
-    const opts = (window as any).__PEER_OPTS || {};
+    const opts = { ...((window as any).__PEER_OPTS || {}) };
+    if (iceServers?.length) opts.config = { iceServers };
     this.peer = role === 'host' ? new Peer(PREFIX + code, opts) : new Peer(opts);
     this.peer.on('open', id => {
       this.brokerOk = true;
@@ -81,7 +84,7 @@ export class PeerRoom {
       if (this.conns.size) return;
       this.error = 'ice-timeout';
       for (const h of this.errHandlers) h({ code: 'ice-timeout', message: 'Could not open a direct connection.' });
-    }, 15000);
+    }, this.timeoutMs);
   }
 
   /** Poll the underlying RTCPeerConnection so we can see where connecting gets stuck. */

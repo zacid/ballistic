@@ -169,8 +169,8 @@ export class Hud {
     $('lobby-steps').hidden = g.inArtifact || room?.role === 'guest' || friends.length > 0;
     for (const m of ['duel', 'coop'] as ModeId[]) ($('lobby-' + m) as HTMLButtonElement).disabled = !friends.length;
     $('lobby-diag').textContent = room
-      ? `${room.role} | code ${room.code} | ${room.ice.state === 'relay' || (room as any).rtt !== undefined ? 'relay' : 'broker'} ${room.brokerOk ? 'ok' : 'no'} | ${net.linked ? 'connected' : 'not connected'} | ${friends.length} in lobby`
-        + (room.ice.state === 'relay' ? (room.ice.path ? ` | ${room.ice.path}` : '') : room.ice.state !== 'idle' ? ` | ICE ${room.ice.state} | mine ${room.ice.local || '-'} | theirs ${room.ice.remote || '-'}${room.ice.path ? ' | via ' + room.ice.path : ''}` : '')
+      ? `${room.role} | code ${room.code} | server ${room.brokerOk ? 'ok' : 'no'} | ${net.linked ? 'connected' : 'not connected'} | ${friends.length} in lobby`
+        + (room.ice.state === 'relay' ? (room.ice.path ? ` | ${room.ice.path}` : '') : room.ice.path && room.ice.state.includes('connected') ? ` | ${room.ice.path}` : room.ice.state !== 'idle' ? ` | ICE ${room.ice.state} | mine ${room.ice.local || '-'} | theirs ${room.ice.remote || '-'}${room.ice.path ? ' | via ' + room.ice.path : ''}` : '')
         + (err ? ` | error ${err}` : '')
       : '';
     $('lobby-loadout').textContent = `Your loadout: ${WEAPONS[g.saved.weapon].name} + ${ABILITIES[g.saved.ability].name}. Change it from the main menu.`;

@@ -16,6 +16,7 @@ import { Stats } from './stats';
 import { Net, NetEvent, RosterEntry, StartOffer, HostState } from './net';
 import { PeerRoom, newCode } from './peerroom';
 import { WsRoom } from './wsroom';
+import { DuoRoom } from './duoroom';
 import { RELAY_URL } from './config';
 
 interface Shot { owner: number; x: number; z: number; vx: number; vz: number; life: number; dist: number; w: WeaponId; mesh?: THREE.Object3D; trailT: number; cosmetic: boolean }
@@ -664,12 +665,14 @@ export class Game {
 
   /** Inside claude.ai the page can't open WebRTC connections, so online play lives on the hosted build. */
   get inArtifact() { return !!(window as any).claude?.use; }
-  peerRoom: PeerRoom | WsRoom | null = null;
+  peerRoom: PeerRoom | WsRoom | DuoRoom | null = null;
 
   /** Relay if one is configured (works on any network); otherwise direct WebRTC. */
   private makeRoom(role: 'host' | 'guest', code: string) {
     const relay = (window as any).__RELAY ?? new URLSearchParams(location.search).get('relay') ?? RELAY_URL;
-    return relay ? new WsRoom(role, code, relay) : new PeerRoom(role, code);
+    const q = new URLSearchParams(location.search).get('transport');
+    const mode = q === 'ws' || q === 'p2p' ? q : 'auto';
+    return relay ? new DuoRoom(role, code, relay, mode) : new PeerRoom(role, code);
   }
 
   openLobby() {

@@ -51,12 +51,14 @@ npm run preview    # serves site/ on http://localhost:8766
 
 ### How the connection works
 
-Two transports, chosen by `RELAY_URL` in `src/config.ts`:
+With `RELAY_URL` set in `src/config.ts` (the default), the game uses two paths at once:
 
-- **Relay (recommended).** Both browsers open a WebSocket to a tiny Cloudflare Worker (`relay/`), which forwards messages between them. It works on any network that can load a website: no port forwarding, NAT or firewall rules. Cloudflare runs it close to the players (there are data centres in Johannesburg and Cape Town).
-- **Direct WebRTC via PeerJS** (used when `RELAY_URL` is empty). No server of your own, but strict routers, VPNs and privacy settings can block it.
+1. **WebRTC through Cloudflare TURN (fast path).** The Worker hands out short-lived Cloudflare Realtime TURN credentials at `/ice`. TURN is anycast, so each player relays through their nearest Cloudflare data centre (Johannesburg or Cape Town for players in South Africa), and it runs over port 443, so strict firewalls and VPNs let it through. If both networks allow a plain direct connection, WebRTC uses that instead.
+2. **WebSocket relay (fallback).** A Durable Object forwards messages between the two players. It works everywhere, but Durable Objects don't run in Africa, so from South Africa every message goes to Europe and back (about 170 ms round trip).
 
-You can try a different relay without rebuilding with `?relay=wss://...` in the page URL.
+The host listens on both. The guest tries WebRTC for 8 seconds, then falls back to the relay. The grey line in the lobby shows which path is in use and its round-trip time.
+
+For debugging you can force a path with `?transport=p2p` or `?transport=ws`, or point at another relay with `?relay=https://...`.
 
 ### Deploy the relay (one time, free)
 
@@ -69,6 +71,19 @@ npx wrangler deploy
 The first deploy opens a browser to log in to Cloudflare (a free account is enough) and may ask you to pick a `workers.dev` subdomain. It prints the relay's address, something like `https://ballistic-relay.<you>.workers.dev`. Put that in `RELAY_URL` in `src/config.ts`, commit and push.
 
 Check it's up by opening `https://ballistic-relay.<you>.workers.dev/health` (it says `ballistic relay ok`).
+
+### Turn on Cloudflare TURN (the fast path)
+
+1. In the Cloudflare dashboard, open **Realtime → TURN Server** and create a TURN key. Copy its **Key ID** and **API token**.
+2. From `relay/`:
+   ```bash
+   npx wrangler secret put TURN_KEY_ID
+   npx wrangler secret put TURN_KEY_API_TOKEN
+   npx wrangler deploy
+   ```
+3. Open `https://ballistic-relay.<you>.workers.dev/ice`. It should say `"turn":true`.
+
+The first 1,000 GB a month are free; a match uses well under 1 GB an hour.
 
 The relay uses one SQLite-backed Durable Object per room with the WebSocket Hibernation API, which the Workers free plan covers. It holds a host and a guest per room code and only forwards bytes; game logic stays in the browsers.
 

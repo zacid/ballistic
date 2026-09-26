@@ -8,7 +8,30 @@
 
 import { DurableObject } from 'cloudflare:workers';
 
-export interface Env { ROOMS: DurableObjectNamespace<Room> }
+export interface Env {
+  ROOMS: DurableObjectNamespace<Room>;
+  // Cloudflare Realtime TURN key (Dashboard > Realtime > TURN). Set with `wrangler secret put`.
+  TURN_KEY_ID?: string;
+  TURN_KEY_API_TOKEN?: string;
+}
+
+const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, OPTIONS', 'Cache-Control': 'no-store' };
+
+/** Short-lived TURN credentials so browsers can relay through their nearest Cloudflare data centre. */
+async function iceServers(env: Env): Promise<Response> {
+  const fallback = { iceServers: [{ urls: ['stun:stun.cloudflare.com:3478'] }], turn: false };
+  if (!env.TURN_KEY_ID || !env.TURN_KEY_API_TOKEN) return Response.json(fallback, { headers: CORS });
+  const r = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${env.TURN_KEY_ID}/credentials/generate-ice-servers`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${env.TURN_KEY_API_TOKEN}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ttl: 6 * 3600 }),
+  });
+  if (!r.ok) return Response.json({ ...fallback, error: `turn api ${r.status}` }, { headers: CORS });
+  const data = await r.json() as { iceServers: { urls: string | string[]; username?: string; credential?: string }[] };
+  // browsers block port 53, and those URLs only slow ICE down
+  for (const s of data.iceServers) if (Array.isArray(s.urls)) s.urls = s.urls.filter(u => !/:53\b/.test(u));
+  return Response.json({ iceServers: data.iceServers, turn: true }, { headers: CORS });
+}
 
 const CODE = /^[a-z0-9]{6}$/;
 
@@ -16,7 +39,9 @@ export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
     const m = url.pathname.match(/^\/room\/([a-z0-9]+)$/);
-    if (url.pathname === '/' || url.pathname === '/health') return new Response('ballistic relay ok\n');
+    if (url.pathname === '/' || url.pathname === '/health') return new Response('ballistic relay ok\n', { headers: CORS });
+    if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
+    if (url.pathname === '/ice') return iceServers(env);
     if (!m || !CODE.test(m[1])) return new Response('not found', { status: 404 });
     if (req.headers.get('Upgrade') !== 'websocket') return new Response('expected a websocket', { status: 426 });
     const stub = env.ROOMS.get(env.ROOMS.idFromName(m[1]));
