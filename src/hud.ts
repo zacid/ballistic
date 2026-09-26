@@ -48,6 +48,7 @@ export class Hud {
     $('quit').addEventListener('click', () => { this.g.paused = false; this.toMenu(); });
     $('gear').addEventListener('click', () => { $('settings').classList.toggle('open'); this.syncSettings(); });
     $('tog-mute').addEventListener('change', e => this.g.setMuted((e.target as HTMLInputElement).checked));
+    $('tog-assist').addEventListener('change', e => { this.g.saved.aimAssist = (e.target as HTMLInputElement).checked; this.g.save(); });
     $('vol-sfx').addEventListener('input', e => { const v = Number((e.target as HTMLInputElement).value) / 100; this.g.saved.sfxVol = v; this.g.audio.setSfxVolume(v); this.g.save(); });
     $('vol-sfx').addEventListener('change', () => { this.g.audio.unlock(); this.g.audio.play('pickup'); });
     $('vol-music').addEventListener('input', e => { const v = Number((e.target as HTMLInputElement).value) / 100; this.g.saved.musicVol = v; this.g.audio.music.setVolume(v); this.g.save(); });
@@ -196,6 +197,7 @@ export class Hud {
     ($('dbg-ao') as HTMLInputElement).checked = f.ao; ($('dbg-bloom') as HTMLInputElement).checked = f.bloom; ($('dbg-shadows') as HTMLInputElement).checked = f.shadows;
     for (const b of Array.from($('res-seg').children) as HTMLElement[]) b.classList.toggle('on', Number(b.dataset.v) === f.res);
     ($('tog-mute') as HTMLInputElement).checked = this.g.saved.muted;
+    ($('tog-assist') as HTMLInputElement).checked = this.g.saved.aimAssist;
     ($('vol-sfx') as HTMLInputElement).value = String(Math.round(this.g.saved.sfxVol * 100));
     ($('vol-music') as HTMLInputElement).value = String(Math.round(this.g.saved.musicVol * 100));
   }
@@ -369,8 +371,37 @@ export class Hud {
     this.deathKiller = killer ? killer.name : '';
     const w = killer ? WEAPONS[killer.weapon] : null;
     $('dead-by').innerHTML = killer ? `Popped by <b style="color:${hex(killer.color)}">${esc(this.g.nameOf(killer))}</b>${w && !w.hidden ? ` <small>with the <b style="color:${hex(w.color)}">${w.name}</b></small>` : ''}` : 'Popped yourself';
+    $('dead-tip').textContent = this.deathTip(killer);
     $('dead').classList.add('show');
     $('dead').classList.toggle('cam', !!killer);
+  }
+
+  /** One practical hint on the respawn screen, picked from what just happened. */
+  private tipsShown = new Set<string>();
+  private deathTip(killer: Babo | null): string {
+    const g = this.g, p = g.player, tips: string[] = [];
+    const byGun: Partial<Record<WeaponId, string>> = {
+      shotgun: 'Shotguns only hurt up close: keep 6 m or more away and pick them off.',
+      chaingun: 'Chaingun bullets lose power with distance. Break line of sight behind a block, then peek.',
+      rocket: 'Rockets are slow. Roll sideways when you see one coming, and never fight next to a wall.',
+      railgun: 'The railgun beam hangs in the air for a moment: wait for it to fade before rolling through.',
+      bouncer: 'Bouncer balls ricochet off walls. Open ground is safer than corridors against them.',
+      flamethrower: 'Flamethrowers melt you up close but reach only 5 m. Back off and shoot.',
+      gravity: 'Gravity gun: dash out of the pull, and stay away from walls so the fling can\'t slam you.',
+      pistol: 'Even pistols add up. Grab a real gun from a pad as soon as you spawn.',
+      grenade: 'Grenades bounce: keep moving when you hear one land.',
+    };
+    if (killer && byGun[killer.weapon]) tips.push(byGun[killer.weapon]!);
+    if (p.weapon === 'pistol' && !g.mode.gun) tips.push('You had the pistol. Roll over a gun pad to swap to something stronger.');
+    if (p.ability !== 'bubble') tips.push('Try Bubble as your Spacebar ability: it soaks 70% of damage for 2 s.');
+    else if (p.abCool <= 0) tips.push('Your Bubble was ready. Hit Space when a fight starts, not after.');
+    if (p.nades > 0 && !g.mode.gun) tips.push('You still had grenades: right-click (or G) to flush bots out of cover.');
+    tips.push('Health packs respawn every 11 s. Retreat to one when you drop below half.');
+    tips.push('Watch the red arcs at the edge of the screen: they point at whoever is hitting you.');
+    if (!g.saved.aimAssist && !g.online) tips.push('Aim assist is off. You can turn it on in settings (gear icon).');
+    const fresh = tips.find(t => !this.tipsShown.has(t)) ?? tips[0];
+    this.tipsShown.add(fresh);
+    return fresh;
   }
 
   /** A red arc at the screen edge pointing at whoever just hit you. One per attacker, refreshed on each hit. */
@@ -572,7 +603,7 @@ export class Hud {
     if (!p.alive && g.state === 'playing') {
       const out = g.mode.waves && g.wv.out.has(p.id);
       $('dead-t').textContent = out ? (g.wv.breakT > 0 ? 'Back any second' : 'Out until the next wave') : `Back in ${Math.max(0, p.respawnT).toFixed(1)}s`;
-      $('dead-next').textContent = `Respawning with ${g.mode.gun ? WEAPONS[LADDER[Math.min(p.tier, LADDER.length - 1)]].name : WEAPONS[START_WEAPON].name} + ${ABILITIES[g.pendingAbility].name}. P to change ability.`;
+      $('dead-next').textContent = `Respawning with ${g.mode.gun ? WEAPONS[LADDER[Math.min(p.tier, LADDER.length - 1)]].name : WEAPONS[g.mode.waves ? 'chaingun' : START_WEAPON].name} + ${ABILITIES[g.pendingAbility].name}. P to change ability.`;
     } else $('dead').classList.remove('show', 'cam');
 
     // ping to the other player (online only)

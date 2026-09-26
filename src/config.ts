@@ -146,7 +146,7 @@ export type ArenaSize = keyof typeof ARENA_SIZES;
 export const WAVES = {
   lives: 3, livesDuo: 5, maxLives: 9, breakT: 6, firstBreak: 3,
 };   // wave size, pace, guns and bot skill come from the director (src/director.ts)
-export const BOSS = { hp: 450, every: 5, speed: 0.8, knock: 0.3 };
+export const BOSS = { hp: 450, every: 5, speed: 0.8, knock: 0.3, miniAt: 3, miniScale: 1.35, miniHp: 0.5 };
 export const MATCH = { fragLimit: 20, timeLimit: 240, bots: 7 };
 
 export type AbilityId = 'dash' | 'spikes' | 'bubble' | 'shockwave' | 'mine';

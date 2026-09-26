@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { Game } from './game';
 import type { Babo } from './babo';
 import { WEAPONS } from './config';
+import { CLIMB } from './arena';
 
 const $ = (id: string) => document.getElementById(id)!;
 
@@ -105,12 +106,37 @@ export class Input {
     const a = this.aimWorld(this.aimTmp);
     const dx = a.x - b.x, dz = a.z - b.z, l = Math.hypot(dx, dz);
     if (l > 0.2) { b.aimX = dx / l; b.aimZ = dz / l; }
+    this.assist(b);
     b.aimDist = l;
     b.fire = this.touch ? this.touchAim.active : this.mouseDown;
     if (this.abilityQueued) { b.wantAbility = true; this.abilityQueued = false; }
     // reloading an empty clip automatically; tapping fire while reloading does nothing
     if (b.fire && b.ammo <= 0 && b.reloadT <= 0) g.reload(b);
     void WEAPONS;
+  }
+
+  /**
+   * Aim assist (vs bots only): if a bot you can see is within ~12 degrees of your crosshair, pull the
+   * aim most of the way onto it. Off in matches where another human is your opponent.
+   */
+  private assist(b: Babo) {
+    const g = this.g;
+    if (!g.saved.aimAssist || g.mode.id === 'duel' || g.mode.id === 'ggduel') return;
+    const w = WEAPONS[b.weapon]; if (w.kind === 'melee' || w.kind === 'lob') return;
+    const aim = Math.atan2(b.aimZ, b.aimX);
+    let best = 0.21, pick = 0;
+    for (const o of g.babos) {
+      if (o === b || !o.alive || o.human || !g.canDamage(b, o)) continue;
+      const dx = o.x - b.x, dz = o.z - b.z, d = Math.hypot(dx, dz);
+      if (d > 18 || d < 0.8) continue;
+      let da = Math.atan2(dz, dx) - aim; while (da > Math.PI) da -= Math.PI * 2; while (da < -Math.PI) da += Math.PI * 2;
+      if (Math.abs(da) >= best) continue;
+      if (g.arena.raycast(b.x, b.z, o.x, o.z, b.y + 0.55, true, CLIMB) >= 0) continue;
+      best = Math.abs(da); pick = da;
+    }
+    if (!pick) return;
+    const k = 0.7 * (1 - best / 0.21) + 0.3;   // stronger the closer you already are
+    const na = aim + pick * k; b.aimX = Math.cos(na); b.aimZ = Math.sin(na);
   }
 
   // ---------- touch ----------

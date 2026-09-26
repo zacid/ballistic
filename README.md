@@ -18,11 +18,17 @@ Every pop moves you one weapon up the ladder: rockets, railgun, chaingun, flamet
 
 Defend the keep on the Fort map against waves of bots. Each wave brings more of them, with better guns and sharper aim, and every 5th wave has a boss: a big, slow, rocket-firing ball with 450 HP that shrugs off knockback. The defenders share a pool of lives (3 solo, 5 for two players). Clearing a wave or popping a boss gives one back, and you heal between waves. If you die with no lives left you sit out until the next wave; if everyone is out, the fort falls. Your best wave is saved.
 
+### Getting help
+
+- **Aim assist (vs bots):** on by default. If a bot you can see is within about 12 degrees of your crosshair, your aim is pulled most of the way onto it. It never applies against your friend in 1v1 modes. Toggle it in settings.
+- **Tips:** the respawn screen shows one practical hint based on what just happened (the gun that got you, your ability, your grenades).
+- **Mini boss:** Hold the Fort sends a smaller boss on wave 3 (and 8, 13...) as well as the big one every 5th wave. Defenders start with a chaingun.
+
 ### Adaptive difficulty
 
 With the Bots setting on **Adaptive** (the default), Hold the Fort sizes each wave to how you played the last one (`src/director.ts`). After every wave it scores lives lost, damage taken per bot popped, health left and time taken against a target of "a bit of a scramble", and nudges a hidden rating: down fast when you're struggling, up slowly when you're cruising. The rating and the wave number set bot aim and reaction time, how many come and how many attack at once, how quickly they arrive, their guns, how hard their shots hit, and the boss's health. Mid-wave it only ever eases off: if everyone standing is badly hurt, or someone just lost a life, reinforcements hold back for a few seconds. In co-op, whoever is clearly carrying draws more of the fire. The bars next to your lives show the current threat level. Easy, Normal and Hard pin the rating instead.
 
-In Free-for-all, Gun Game and 2 vs bots (online too), Adaptive works continuously instead (`FfaDirector` in the same file): every pop you land nudges a rating up a little, every time you're popped nudges it down more, and every 15 s the damage you dealt versus took nudges it too. It only changes how bots treat you (how fast and accurately they shoot at you, how hard their hits land, and how keen they are to target you), so bot-against-bot fights play normally. Each human gets their own rating (online the host runs it, since the bots live there, and sends the numbers to the guest). The rating is saved between matches, and the threat bars sit in the scoreboard pill.
+In Free-for-all, Gun Game and 2 vs bots (online too), Adaptive works continuously instead (`FfaDirector` in the same file): every pop you land nudges a rating up a little, every time you're popped nudges it down more, and every 15 s the damage you dealt versus took nudges it too. It only changes how bots treat you (how fast and accurately they shoot at you, how hard their hits land, and how keen they are to target you), so bot-against-bot fights play normally. Below the old floor (about Easy) it keeps going: at the very bottom bots take a full second to react, aim with a ±25° wobble, barely strafe, rarely use abilities or grenades, hit you for 40% and prefer other targets. New players start near there, and three deaths in a row without a pop drops it a big step. Each human gets their own rating (online the host runs it, since the bots live there, and sends the numbers to the guest). The rating is saved between matches, and the threat bars sit in the scoreboard pill.
 
 ### Music
 

@@ -14,7 +14,20 @@ export interface WaveStats { livesLost: number; dmgTaken: number; kills: number;
 
 /** Fixed difficulties pin the rating; adaptive starts in the middle and moves. */
 export const FIXED_SKILL = { easy: -0.8, normal: 0, hard: 0.9 } as const;
-const S_MIN = -1, S_MAX = 1.6;
+const S_MIN = -2, S_MAX = 1.6;
+
+/**
+ * Bot behaviour for a 0..1 rating, plus `sub` (0..1) for how far below the old floor it has dropped.
+ * The old floor was roughly Easy; below it bots get properly gentle for people still learning.
+ */
+export interface BotSkill { react: number; aimErr: number; lead: number; nade: number; strafe: number; ability: number }
+const TOP: BotSkill = { react: 0.14, aimErr: 0.045, lead: 1, nade: 1, strafe: 1, ability: 1 };
+const FLOOR: BotSkill = { react: 0.62, aimErr: 0.26, lead: 0.25, nade: 0.15, strafe: 1, ability: 1 };
+const BOTTOM: BotSkill = { react: 1.0, aimErr: 0.42, lead: 0.1, nade: 0.02, strafe: 0.35, ability: 0.25 };
+export function botSkill(t: number, sub: number): BotSkill {
+  const from = sub > 0 ? FLOOR : FLOOR, to = sub > 0 ? BOTTOM : TOP, k = sub > 0 ? sub : t;
+  return { react: lerp(from.react, to.react, k), aimErr: lerp(from.aimErr, to.aimErr, k), lead: lerp(from.lead, to.lead, k), nade: lerp(from.nade, to.nade, k), strafe: lerp(from.strafe, to.strafe, k), ability: lerp(from.ability, to.ability, k) };
+}
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -31,7 +44,7 @@ export class Director {
 
   reset(difficulty: string) {
     this.adaptive = difficulty === 'adaptive';
-    this.skill = this.adaptive ? -0.2 : FIXED_SKILL[difficulty as keyof typeof FIXED_SKILL] ?? 0;
+    this.skill = this.adaptive ? -0.6 : FIXED_SKILL[difficulty as keyof typeof FIXED_SKILL] ?? 0;
     this.trend = 0; this.lastPerf = 0; this.hpSeen.clear(); this.hurtT = 0;
   }
 
@@ -41,12 +54,10 @@ export class Director {
   /** Effective level: the rating plus a gentle climb per wave. */
   level(n: number) { return this.skill + Math.max(0, n - 1) * 0.09; }
   private t(n: number) { return clamp((this.level(n) + 1) / 2.6, 0, 1); }
+  private sub(n: number) { return clamp(-(this.level(n) + 1), 0, 1); }
 
   // ---------- the knobs ----------
-  aim(n: number) {
-    const t = this.t(n);
-    return { react: lerp(0.62, 0.14, t), aimErr: lerp(0.26, 0.045, t), lead: lerp(0.25, 1, t), nade: lerp(0.15, 1, t) };
-  }
+  aim(n: number) { return botSkill(this.t(n), this.sub(n)); }
   count(n: number, humans: number) {
     return Math.max(2, Math.round((1.5 + n * 1.1) * (humans > 1 ? 1.35 : 1) * (1 + 0.22 * this.skill)));
   }
@@ -61,7 +72,7 @@ export class Director {
       : e <= 6 ? ['shotgun', 'chaingun', 'bouncer', 'rocket', 'flamethrower', 'gravity'] : ['shotgun', 'chaingun', 'bouncer', 'rocket', 'railgun', 'flamethrower', 'gravity'];
   }
   /** Bot bullets hit softer while the defenders are finding their feet. */
-  botDamage(n: number) { return lerp(0.55, 1.05, clamp(this.t(n) * 1.4, 0, 1)); }
+  botDamage(n: number) { const s = this.sub(n); return s > 0 ? lerp(0.55, 0.35, s) : lerp(0.55, 1.05, clamp(this.t(n) * 1.4, 0, 1)); }
   bossHp(humans: number) { return Math.round(380 * (1 + 0.3 * this.skill) * (humans > 1 ? 1.4 : 1)); }
 
   // ---------- watching the fight ----------
@@ -115,7 +126,7 @@ export class Director {
 // The rating sets how quickly and accurately bots shoot at you, how hard their hits land, and how keen
 // they are to pick you as a target. It's saved, so the next match starts where the last one ended.
 
-interface Form { skill: number; dealt: number; taken: number; windowT: number; trend: number; local: boolean }
+interface Form { skill: number; dealt: number; taken: number; windowT: number; trend: number; local: boolean; dry: number }
 
 export class FfaDirector {
   /** Running (on the host / offline): drives the bots. */
@@ -127,17 +138,23 @@ export class FfaDirector {
   /** Track each human in the match. `local` humans' damage dealt is visible here; a guest's isn't. */
   start(active: boolean, humans: { id: number; skill?: number; local: boolean }[]) {
     this.active = active; this.shown = active; this.f.clear();
-    for (const h of humans) this.f.set(h.id, { skill: clamp(h.skill ?? -0.2, -1, 1.3), dealt: 0, taken: 0, windowT: 0, trend: 0, local: h.local });
+    for (const h of humans) this.f.set(h.id, { skill: clamp(h.skill ?? -1.2, -2, 1.3), dealt: 0, taken: 0, windowT: 0, trend: 0, local: h.local, dry: 0 });   // new players start gentle
   }
   has(id: number) { return this.active && this.f.has(id); }
   skillOf(id: number) { return this.f.get(id)?.skill; }
   /** Guest: take the host's ratings. */
-  mirror(id: number, skill: number) { const f = this.f.get(id); if (f) f.skill = skill; else this.f.set(id, { skill, dealt: 0, taken: 0, windowT: 0, trend: 0, local: false }); this.shown = true; }
+  mirror(id: number, skill: number) { const f = this.f.get(id); if (f) f.skill = skill; else this.f.set(id, { skill, dealt: 0, taken: 0, windowT: 0, trend: 0, local: false, dry: 0 }); this.shown = true; }
   ratings(n: number) { return Array.from({ length: n }, (_, id) => { const f = this.f.get(id); return f ? Math.round(f.skill * 100) : -999; }); }
 
-  private nudge(id: number, d: number) { const f = this.f.get(id); if (!f) return; const b = f.skill; f.skill = clamp(f.skill + d, -1, 1.3); f.trend = Math.sign(f.skill - b); }
-  popped(id: number, streak: number) { if (this.active) this.nudge(id, 0.05 + (streak >= 3 ? 0.03 : 0)); }
-  died(id: number) { if (this.active) this.nudge(id, -0.11); }
+  private nudge(id: number, d: number) { const f = this.f.get(id); if (!f) return; const b = f.skill; f.skill = clamp(f.skill + d, -2, 1.3); f.trend = Math.sign(f.skill - b); }
+  popped(id: number, streak: number) { const f = this.f.get(id); if (f) f.dry = 0; if (this.active) this.nudge(id, 0.05 + (streak >= 3 ? 0.03 : 0)); }
+  /** Each death eases off; three in a row without landing a pop eases off a big step more. */
+  died(id: number) {
+    if (!this.active) return;
+    this.nudge(id, -0.11);
+    const f = this.f.get(id); if (!f) return;
+    if (++f.dry >= 3) { f.dry = 0; this.nudge(id, -0.25); }
+  }
   dealtDamage(id: number, d: number) { const f = this.f.get(id); if (f) f.dealt += d; }
   tookDamage(id: number, d: number) { const f = this.f.get(id); if (f) f.taken += d; }
   step(dt: number) {
@@ -152,16 +169,16 @@ export class FfaDirector {
   }
 
   private t(id: number) { const f = this.f.get(id); return f ? clamp((f.skill + 1) / 2.3, 0, 1) : 0.5; }
-  /** Bot skill when shooting at this human (Easy-ish at the bottom, a bit past Hard at the top). */
+  private sub(id: number) { const f = this.f.get(id); return f ? clamp(-(f.skill + 1), 0, 1) : 0; }
+  /** Bot skill when shooting at this human: from very gentle, through Easy, to a bit past Hard. */
   aim(id: number, base: { react: number; aimErr: number; lead: number; nade: number }) {
     if (!this.has(id)) return base;
-    const t = this.t(id);
-    return { react: lerp(0.62, 0.15, t), aimErr: lerp(0.26, 0.05, t), lead: lerp(0.25, 1, t), nade: lerp(0.15, 1, t) };
+    return botSkill(this.t(id), this.sub(id));
   }
   /** How hard bot hits on this human land. */
-  damage(id: number) { return this.has(id) ? lerp(0.6, 1.1, this.t(id)) : 1; }
+  damage(id: number) { if (!this.has(id)) return 1; const s = this.sub(id); return s > 0 ? lerp(0.6, 0.4, s) : lerp(0.6, 1.1, this.t(id)); }
   /** Added to a bot's target score for this human (lower = more likely to be picked). */
-  targetBias(id: number) { return this.has(id) ? lerp(3.5, -3, this.t(id)) : 0; }
+  targetBias(id: number) { if (!this.has(id)) return 0; const s = this.sub(id); return s > 0 ? lerp(3.5, 6, s) : lerp(3.5, -3, this.t(id)); }
   threat(id: number) { return clamp(Math.round(this.t(id) * 4) + 1, 1, 5); }
   showsFor(id: number) { return this.shown && this.f.has(id); }
 }

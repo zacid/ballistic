@@ -28,7 +28,7 @@ function brain(b: Babo): Brain {
   return b.brain as Brain;
 }
 
-export function thinkBot(g: Game, b: Babo, dt: number, diff: { react: number; aimErr: number; lead: number; nade: number }) {
+export function thinkBot(g: Game, b: Babo, dt: number, diff: { react: number; aimErr: number; lead: number; nade: number; strafe?: number; ability?: number }) {
   const br = brain(b);
   const w = WEAPONS[b.weapon];
   br.think -= dt; br.repath -= dt; br.strafeT -= dt; br.errT -= dt; br.nadeT -= dt;
@@ -73,8 +73,9 @@ export function thinkBot(g: Game, b: Babo, dt: number, diff: { react: number; ai
     let fwd = dist > pref + 1.2 ? 1 : dist < pref - 1.2 ? -0.8 : 0;
     if (br.strafeT <= 0) { br.strafe = Math.random() < 0.55 ? -br.strafe : br.strafe; br.strafeT = 0.5 + Math.random() * 1.1; }
     const sf = w.kind === 'melee' ? 0.25 : 0.85;   // spikes: go straight for them
-    mx = dx * fwd + -dz * br.strafe * sf;
-    mz = dz * fwd + dx * br.strafe * sf;
+    const sfx = sf * (diff.strafe ?? 1);   // gentle bots dodge less
+    mx = dx * fwd + -dz * br.strafe * sfx;
+    mz = dz * fwd + dx * br.strafe * sfx;
     br.path = [];
   } else {
     // pick a destination: health, last known enemy, or a random roam point
@@ -174,7 +175,7 @@ export function thinkBot(g: Game, b: Babo, dt: number, diff: { react: number; ai
   } else if (br.nadeT <= 0) br.nadeT = 1;
 
   // --- ability
-  if (b.abCool <= 0 && tAlive && Math.random() < dt * 6 * (0.4 + diff.nade)) {
+  if (b.abCool <= 0 && tAlive && Math.random() < dt * 6 * (0.4 + diff.nade) * (diff.ability ?? 1)) {
     const recentlyHit = g.clock - b.lastHitT < 0.4;
     switch (b.ability) {
       case 'dash': b.wantAbility = (visible && dist < 5 && b.hp < 40) || br.stuckT > 0.4 || (visible && w.preferred < 4 && dist > 4 && dist < 8); break;

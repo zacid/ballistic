@@ -245,8 +245,8 @@ export function setWeapon(b: Babo, w: WeaponId) {
 }
 
 /** Hold the Fort boss: a big, tanky ball. Scaling the root keeps the gun and spikes in proportion. */
-export function setBoss(b: Babo, on: boolean) {
-  const s = on ? 1.7 : 1;
+export function setBoss(b: Babo, on: boolean, scale = 1.7) {
+  const s = on ? scale : 1;
   b.boss = on; b.rad = BALL.radius * s; b.maxHp = on ? BOSS.hp : BALL.hp;
   b.root.scale.setScalar(s);
 }

@@ -130,6 +130,8 @@ kbd { display: inline-block; min-width: 20px; padding: 0 5px; border-radius: 5px
 #result-stats .st.best span::after { content: ' \2605 BEST'; color: #ffd84a; }
 #dead-t { font-weight: 700; font-size: 17px; }
 #dead-next { font-weight: 600; font-size: 13px; color: var(--muted); }
+#dead-tip { margin: 4px 0 2px; font-weight: 700; font-size: 14px; color: #ffe08a; max-width: 460px; }
+#dead-tip:empty { display: none; }
 
 #cross { position: fixed; left: 0; top: 0; width: 0; height: 0; pointer-events: none; z-index: 5; --r: 0; }
 #cross::before { content: ""; position: absolute; left: -13px; top: -13px; width: 26px; height: 26px; border-radius: 50%; border: 3px solid var(--cream); box-shadow: 0 0 0 2px var(--ink), inset 0 0 0 2px var(--ink); }
@@ -368,7 +370,7 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
   <div id="top"><div class="pill" id="clock">4:00</div><div class="pill" id="race"></div><div class="pill" id="ping" hidden></div></div>
   <div id="mini"></div>
   <div id="banner"></div>
-  <div id="dead" class="pill"><div id="dead-cam">KILLCAM</div><div id="dead-by"></div><div id="dead-t"></div><div id="dead-next"></div></div>
+  <div id="dead" class="pill"><div id="dead-cam">KILLCAM</div><div id="dead-by"></div><div id="dead-t"></div><div id="dead-tip"></div><div id="dead-next"></div></div>
   <div id="player">
     <div class="pill" id="hp"><div id="hp-dot"></div><div><div id="hp-num">100</div><div class="bar"><div id="hp-fill"></div><div id="hp-over"></div></div></div></div>
   </div>
@@ -397,6 +399,7 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
   <div class="seg" id="quality-seg"></div>
   <h4>SOUND</h4>
   <div class="row"><label for="tog-mute">Mute (<kbd>M</kbd>)</label><input type="checkbox" id="tog-mute"></div>
+  <div class="row"><label for="tog-assist" title="Nudges your aim onto bots that are close to your crosshair. Never applies against your friend.">Aim assist (vs bots)</label><input type="checkbox" id="tog-assist"></div>
   <div class="row vol"><label for="vol-sfx">Sound effects</label><input type="range" id="vol-sfx" min="0" max="100" step="5"></div>
   <div class="row vol"><label for="vol-music">Music</label><input type="range" id="vol-music" min="0" max="100" step="5"></div>
   <div class="row"><label for="tog-perf">Performance panel (<kbd>F</kbd>)</label><input type="checkbox" id="tog-perf"></div>

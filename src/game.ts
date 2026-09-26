@@ -42,7 +42,7 @@ const STORE = 'ballistic.v1';
 export interface Saved {
   weapon: WeaponId; ability: AbilityId; color: number; difficulty: Difficulty; quality: Quality | 'auto';
   muted: boolean; best?: number; perf?: boolean; nick: string;
-  soloMode: 'solo' | 'gungame' | 'waves'; map: MapChoice; arenaSize: ArenaSize; botCount: number; coopBots: number; ffaSkill?: number; bestWave?: number; music?: boolean; sfxVol: number; musicVol: number; records?: { streak?: number; dmg?: number; acc?: number }; v2?: boolean;
+  soloMode: 'solo' | 'gungame' | 'waves'; map: MapChoice; arenaSize: ArenaSize; botCount: number; coopBots: number; ffaSkill?: number; bestWave?: number; music?: boolean; sfxVol: number; musicVol: number; records?: { streak?: number; dmg?: number; acc?: number }; aimAssist: boolean; v2?: boolean;
 }
 function load(): Saved {
   let s: Partial<Saved> = {};
@@ -51,7 +51,7 @@ function load(): Saved {
     // v2: Adaptive became the default (once), since it's the one that suits Hold the Fort
     weapon: s.weapon ?? 'shotgun', ability: s.ability ?? 'dash', color: s.color ?? 0, difficulty: (s as any).v2 ? s.difficulty ?? 'adaptive' : 'adaptive',
     quality: s.quality ?? 'auto', muted: !!s.muted, best: s.best, perf: s.perf, nick: s.nick ?? '',
-    soloMode: s.soloMode ?? 'solo', map: s.map && s.map in MAPS ? s.map : 'random', arenaSize: s.arenaSize ?? 'medium', botCount: s.botCount ?? 7, coopBots: s.coopBots ?? 5, bestWave: s.bestWave, music: s.music ?? true, sfxVol: s.sfxVol ?? 1, musicVol: s.musicVol ?? (s.music === false ? 0 : 0.8), v2: true,
+    soloMode: s.soloMode ?? 'solo', map: s.map && s.map in MAPS ? s.map : 'random', arenaSize: s.arenaSize ?? 'medium', botCount: s.botCount ?? 7, coopBots: s.coopBots ?? 5, bestWave: s.bestWave, music: s.music ?? true, sfxVol: s.sfxVol ?? 1, aimAssist: s.aimAssist ?? true, musicVol: s.musicVol ?? (s.music === false ? 0 : 0.8), v2: true,
   };
 }
 
@@ -296,11 +296,14 @@ export class Game {
     w.spawnT -= dt;
     if (w.queue > 0 && w.spawnT <= 0 && alive < dir.maxAlive(w.n, humans.length)) {
       if (slot) {
-        const bossWave = w.n % BOSS.every === 0;
-        const makeBoss = bossWave && w.boss < 0 && w.queue === w.total;
-        if (makeBoss) { setBoss(slot, true); slot.maxHp = dir.bossHp(humans.length); w.boss = slot.id; } else if (slot.boss) setBoss(slot, false);
+        const kind = this.bossKind(w.n);
+        const makeBoss = kind > 0 && w.boss < 0 && w.queue === w.total;
+        if (makeBoss) {
+          setBoss(slot, true, kind === 2 ? 1.7 : BOSS.miniScale);
+          slot.maxHp = Math.round(dir.bossHp(humans.length) * (kind === 2 ? 1 : BOSS.miniHp)); w.boss = slot.id;
+        } else if (slot.boss) setBoss(slot, false);
         this.spawn(slot); w.queue--; w.spawnT = dir.spawnGap();
-        if (makeBoss) { this.hud.banner(`${slot.name.toUpperCase()} THE BIG ONE`, true, 1.8); this.audio.play('boss'); }
+        if (makeBoss) { this.hud.banner(kind === 2 ? `${slot.name.toUpperCase()} THE BIG ONE` : `${slot.name.toUpperCase()}, THE LITTLE BIG ONE`, true, 1.8); this.audio.play('boss'); }
       }
     }
     if (w.queue <= 0 && alive === 0) {
@@ -321,19 +324,22 @@ export class Game {
   private startWave(n: number) {
     const w = this.wv;
     w.n = n; w.cleared = false; w.boss = -1; w.spawnT = 0.5;
-    w.queue = w.total = this.director.count(n, this.humansN) + (n % BOSS.every === 0 ? 1 : 0);
+    w.queue = w.total = this.director.count(n, this.humansN) + (this.bossKind(n) ? 1 : 0);
     this.director.startWave(this.humansN, w.total);
     w.out.clear();
     for (const b of this.babos) if (!b.human) b.respawnT = 1e9;
     this.onWaveStart();
   }
 
+  /** 2 = the big boss (every 5th wave), 1 = a smaller one (wave 3, 8, 13...), 0 = none. */
+  bossKind(n: number) { return n % BOSS.every === 0 ? 2 : n % BOSS.every === BOSS.miniAt ? 1 : 0; }
+
   /** Every client: top up the defenders and announce the wave. */
   private onWaveStart() {
     const n = this.wv.n;
     for (const b of this.babos) if (b.local && b.human && b.alive) { b.hp = Math.max(b.hp, BALL.hp); b.nades = Math.max(b.nades, GRENADE.start); }
-    const boss = n % BOSS.every === 0;
-    this.hud.banner(boss ? `WAVE ${n}: BOSS` : `WAVE ${n}`, false, 1.6);
+    const kind = this.bossKind(n), boss = kind > 0;
+    this.hud.banner(kind === 2 ? `WAVE ${n}: BOSS` : kind === 1 ? `WAVE ${n}: MINI BOSS` : `WAVE ${n}`, false, 1.6);
     this.audio.play(boss ? 'boss' : 'go');
   }
 
@@ -423,7 +429,7 @@ export class Game {
       b.ability = b.boss ? 'shockwave' : AIDS[(Math.random() * AIDS.length) | 0];
     } else if (!b.human) { setWeapon(b, START_WEAPON); b.ability = AIDS[(Math.random() * AIDS.length) | 0]; }
     else if (b.isPlayer) {
-      setWeapon(b, START_WEAPON);
+      setWeapon(b, this.mode.waves ? 'chaingun' : START_WEAPON);   // defenders get a real gun to hold the keep with
       if (b.ability !== this.pendingAbility) { b.ability = this.pendingAbility; b.abCool = 0; }
     }
     b.x = best.x; b.z = best.z; b.vx = b.vz = 0; b.y = b.gy = this.arena.floorAt(best.x, best.z); b.vy = 0;
@@ -683,7 +689,7 @@ export class Game {
       if (b.ammo > 0) return;
       // power weapon run dry: back to the pistol
       if (b.isPlayer) this.hud.toast(`Out of ${w.name.toLowerCase()}`);
-      setWeapon(b, START_WEAPON); b.cool = 0.3; return;
+      setWeapon(b, this.mode.waves && b.human ? 'chaingun' : START_WEAPON); b.cool = 0.3; return;
     }
     b.reloadT = w.reload;
     if (b.isPlayer) this.audio.play('reload');
@@ -1427,7 +1433,7 @@ export class Game {
     w.out = new Set(this.babos.filter(b => outMask & (1 << b.id)).map(b => b.id));
     if (boss !== w.boss) {
       const old = this.babos[w.boss]; if (old?.boss) setBoss(old, false);
-      const nb = this.babos[boss]; if (nb) { setBoss(nb, true); if (bossHp) nb.maxHp = bossHp; this.hud.banner(`${nb.name.toUpperCase()} THE BIG ONE`, true, 1.8); this.audio.play('boss'); }
+      const nb = this.babos[boss]; if (nb) { const big = this.bossKind(n) === 2; setBoss(nb, true, big ? 1.7 : BOSS.miniScale); if (bossHp) nb.maxHp = bossHp; this.hud.banner(big ? `${nb.name.toUpperCase()} THE BIG ONE` : `${nb.name.toUpperCase()}, THE LITTLE BIG ONE`, true, 1.8); this.audio.play('boss'); }
       w.boss = boss;
     }
     if (newWave) this.onWaveStart(); else if (cleared) this.onWaveCleared();
