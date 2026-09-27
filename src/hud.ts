@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Game } from './game';
 import type { Babo } from './babo';
-import { ONLINE_URL, ABILITIES, AbilityId, BALL, COLORS, DIFFICULTY, Difficulty, GRENADE, LADDER, MAPS, MapChoice, ARENA_SIZES, ArenaSize, ModeId, MODES, PICKABLE, START_WEAPON, WEAPONS, WeaponId } from './config';
+import { ONLINE_URL, ABILITIES, AbilityId, BALL, COLORS, DIFFICULTY, Difficulty, GRENADE, LADDER, MAPS, MapChoice, ARENA_SIZES, ArenaSize, ModeId, MODES, PICKABLE, START_WEAPON, THEMES, ThemeChoice, WEAPONS, WeaponId } from './config';
 import { QUALITY, Quality } from './render';
 import { buildGun } from './babo';
 import type { RenderFlags } from './render';
@@ -9,6 +9,13 @@ import type { RenderFlags } from './render';
 const $ = (id: string) => document.getElementById(id)!;
 const hex = (n: number) => '#' + n.toString(16).padStart(6, '0');
 const esc = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
+
+/** What popped someone, for the kill feed and the death screen: a gun, or one of the other ways to go. */
+const CAUSES: Record<string, { name: string; color: number }> = {
+  grenade: { name: 'Grenade', color: 0x7ad48a }, mine: { name: 'Mine', color: 0xff8a5a }, nuke: { name: 'Nuke Bot', color: 0xff3b30 },
+  shockwave: { name: 'Shockwave', color: 0xbfe6ff }, spikesab: { name: 'Spikes', color: 0xe8ecf5 }, spikes: { name: 'Spikes', color: 0xe8ecf5 },
+};
+export function causeOf(src: string) { return CAUSES[src] ?? (src in WEAPONS ? { name: WEAPONS[src as WeaponId].name, color: WEAPONS[src as WeaponId].color } : null); }
 
 interface Floater { el: HTMLElement; x: number; z: number; t: number }
 
@@ -181,6 +188,13 @@ export class Hud {
         b.className = m === cur ? 'on' : ''; b.disabled = locked;
         b.addEventListener('click', () => { this.g.audio.unlock(); this.g.audio.play('click'); this.g.saved.map = m; this.g.save(); redraw(); });
         as.appendChild(b);
+      }
+      const ts = $(pre + 'theme-seg'); ts.innerHTML = '';
+      for (const t of Object.keys(THEMES) as ThemeChoice[]) {
+        const b = document.createElement('button'); b.textContent = THEMES[t].name; b.title = THEMES[t].blurb;
+        b.className = t === this.g.saved.theme ? 'on' : '';
+        b.addEventListener('click', () => { this.g.audio.unlock(); this.g.audio.play('click'); this.g.saved.theme = t; this.g.save(); this.g.previewTheme(); redraw(); });
+        ts.appendChild(b);
       }
       const ss = $(pre + 'size-seg'); ss.innerHTML = '';
       ss.hidden = cur !== 'random';
@@ -369,10 +383,13 @@ export class Hud {
   toast(msg: string) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); this.toastT = 2.2; }
   hurt(k: number) { this.hurtV = Math.min(1, this.hurtV + k); }
 
-  feed(killer: Babo | null, victim: Babo, knifed = false) {
+  /** Babo Violent 2 style: "Killer [gun] Victim", with the gun's picture and name. */
+  feed(killer: Babo | null, victim: Babo, knifed = false, cause = '') {
     const d = document.createElement('div');
     const n = (b: Babo) => `<b style="color:${hex(b.color)}">${esc(this.g.nameOf(b))}</b>`;
-    d.innerHTML = killer ? `${n(killer)} <span>${knifed ? 'SPIKED' : 'popped'}</span> ${n(victim)}` : `${n(victim)} <span>popped themselves</span>`;
+    const c = causeOf(cause), img = gunThumbs()[cause as WeaponId];
+    const how = c ? `<span class="how" style="--c:${hex(c.color)}">${img ? `<img alt="" src="${img}">` : ''}<em>${knifed ? 'SPIKED' : esc(c.name)}</em></span>` : `<span>${knifed ? 'SPIKED' : 'popped'}</span>`;
+    d.innerHTML = killer ? `${n(killer)} ${how} ${n(victim)}` : `${n(victim)} <span>popped themselves</span>${c ? ` <span class="how" style="--c:${hex(c.color)}"><em>${esc(c.name)}</em></span>` : ''}`;
     if (knifed) d.classList.add('spiked');
     if (killer?.isPlayer || victim.isPlayer) d.classList.add('me');
     const f = $('feed'); f.prepend(d);
@@ -380,18 +397,28 @@ export class Hud {
     setTimeout(() => d.classList.add('fade'), 4500); setTimeout(() => d.remove(), 5200);
   }
 
-  onPlayerDeath(killer: Babo | null) {
+  /** Crosshair hit marker: a quick white X on every hit, a bigger red one on a pop. */
+  private hmT = 0;
+  hitMark(kill: boolean) {
+    const c = $('cross');
+    if (!kill && c.classList.contains('kill') && performance.now() - this.hmT < 250) return;   // don't cut a kill marker short
+    c.classList.remove('hit', 'kill'); void (c as HTMLElement).offsetWidth; c.classList.add(kill ? 'kill' : 'hit');
+    this.hmT = performance.now();
+  }
+
+  onPlayerDeath(killer: Babo | null, cause = '') {
     this.deathKiller = killer ? killer.name : '';
-    const w = killer ? WEAPONS[killer.weapon] : null;
-    $('dead-by').innerHTML = killer ? `Popped by <b style="color:${hex(killer.color)}">${esc(this.g.nameOf(killer))}</b>${w && !w.hidden ? ` <small>with the <b style="color:${hex(w.color)}">${w.name}</b></small>` : ''}` : 'Popped yourself';
-    $('dead-tip').textContent = this.deathTip(killer);
+    const c = causeOf(cause || killer?.weapon || '');
+    const art = cause === 'nuke' || cause === 'grenade' || cause === 'mine' ? 'a' : 'the';
+    $('dead-by').innerHTML = killer ? `Popped by <b style="color:${hex(killer.color)}">${esc(this.g.nameOf(killer))}</b>${c ? ` <small>with ${art} <b style="color:${hex(c.color)}">${c.name}</b></small>` : ''}` : `Popped yourself${c && cause !== START_WEAPON ? ` <small>with ${art} <b style="color:${hex(c.color)}">${c.name}</b></small>` : ''}`;
+    $('dead-tip').textContent = this.deathTip(killer, cause);
     $('dead').classList.add('show');
     $('dead').classList.toggle('cam', !!killer);
   }
 
   /** One practical hint on the respawn screen, picked from what just happened. */
   private tipsShown = new Set<string>();
-  private deathTip(killer: Babo | null): string {
+  private deathTip(killer: Babo | null, cause = ''): string {
     const g = this.g, p = g.player, tips: string[] = [];
     const byGun: Partial<Record<WeaponId, string>> = {
       shotgun: 'Shotguns only hurt up close: keep 6 m or more away and pick them off.',
@@ -404,7 +431,15 @@ export class Hud {
       pistol: 'Even pistols add up. Grab a real gun from a pad as soon as you spawn.',
       grenade: 'Grenades bounce: keep moving when you hear one land.',
     };
-    if (killer && byGun[killer.weapon]) tips.push(byGun[killer.weapon]!);
+    const other: Record<string, string> = {
+      nuke: 'A Nuke Bot beeps faster and faster for 3 s. Get outside the red ring, or behind a wall.',
+      mine: 'Mines blink once they are armed. Shoot around them, or dash straight past.',
+      grenade: 'Grenades bounce: keep moving when you hear one land.',
+    };
+    if (other[cause]) tips.push(other[cause]);
+    else if (cause && byGun[cause as WeaponId]) tips.push(byGun[cause as WeaponId]!);
+    else if (killer && byGun[killer.weapon]) tips.push(byGun[killer.weapon]!);
+    if (!cause && !killer && this.g.arena.hasIce) tips.push('Ice barely grips: let go of the keys early to slide to a stop where you want.');
     if (p.weapon === 'pistol' && !g.mode.gun) tips.push('You had the pistol. Stand on a gun pad and press E to swap to something stronger.');
     if (p.ability !== 'bubble') tips.push('Try Bubble as your Spacebar ability: it soaks 70% of damage for 2 s.');
     else if (p.abCool <= 0) tips.push('Your Bubble was ready. Hit Space when a fight starts, not after.');
@@ -701,7 +736,7 @@ function gunThumbs() {
     const sun = new THREE.DirectionalLight(0xffffff, 2.2); sun.position.set(2, 4, 3); scene.add(sun);
     const cam = new THREE.PerspectiveCamera(30, W / H, 0.1, 50);
     cam.position.set(0.4, 1.1, 3.4); cam.lookAt(0, 0, 0);
-    for (const id of PICKABLE) {
+    for (const id of [...PICKABLE, ...(['pistol', 'grenade'] as WeaponId[]).filter(w => !PICKABLE.includes(w))]) {
       const gun = buildGun(id, WEAPONS[id].color);
       gun.rotation.set(0.25, -Math.PI / 2 + 0.35, 0);
       const box = new THREE.Box3().setFromObject(gun), size = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3());

@@ -4,11 +4,13 @@ import { CLIMB, Arena, CELL } from './arena';
 import { Audio } from './audio';
 import { Babo, buildGun, makeBabo, setBlobShadows, setBoss, setTeamRing, setWeapon, updateBaboVisual } from './babo';
 import {
-  ABILITIES, AbilityId, BALL, BOSS, BOT_NAMES, BURN, GRAV, MINE, ZAP, GUN_RESPAWN, MAP_GUNS, START_WEAPON, COLORS, DASH, DIFFICULTY, Difficulty, GRENADE, LADDER, MapChoice, ArenaSize, ARENA_SIZES, MAPS, MODES, ModeDef, ModeId,
+  ABILITIES, AbilityId, BALL, BOSS, BOT_NAMES, BURN, GRAV, MINE, NUKE, ICE, THEMES, ThemeChoice, ThemeId, ZAP, GUN_RESPAWN, MAP_GUNS, START_WEAPON, COLORS, DASH, DIFFICULTY, Difficulty, GRENADE, LADDER, MapChoice, ArenaSize, ARENA_SIZES, MAPS, MODES, ModeDef, ModeId,
   PICKABLE, SPIKES, WAVE, WAVES, WEAPONS, WeaponId,
 } from './config';
 import type { MapId } from './arena';
 import { Fx } from './fx';
+import { Weather } from './weather';
+import { LOOKS, THEME_IDS } from './themes';
 import { Renderer, Quality } from './render';
 import { Hud } from './hud';
 import { Input } from './input';
@@ -27,6 +29,7 @@ type PickKind = 'health' | 'nades' | 'mega';
 interface Pickup { kind: PickKind | 'weapon'; x: number; z: number; t: number; mesh: THREE.Group; w?: WeaponId; drop?: string; ttl?: number }
 interface Mine { owner: number; x: number; z: number; y: number; arm: number; life: number; mesh: THREE.Group; cosmetic: boolean }
 interface Fire { owner: number; x: number; z: number; y: number; t: number }
+interface Nuke { owner: number; x: number; z: number; y: number; t: number; beepT: number; mesh: THREE.Group; warn: THREE.Mesh; cosmetic: boolean }
 interface Rail { owner: number; x0: number; z0: number; x1: number; z1: number; y: number; t: number; hit: Set<number> }
 
 const RESPAWN: Record<PickKind, number> = { health: 11, nades: 13, mega: 30 };
@@ -44,7 +47,7 @@ const STORE = 'ballistic.v1';
 export interface Saved {
   weapon: WeaponId; ability: AbilityId; color: number; difficulty: Difficulty; quality: Quality | 'auto';
   muted: boolean; best?: number; perf?: boolean; nick: string;
-  soloMode: 'solo' | 'gungame' | 'waves'; map: MapChoice; arenaSize: ArenaSize; botCount: number; coopBots: number; ffaSkill?: number; bestWave?: number; practiceBest?: number; music?: boolean; sfxVol: number; musicVol: number; records?: { streak?: number; dmg?: number; acc?: number }; aimAssist: boolean; v2?: boolean;
+  soloMode: 'solo' | 'gungame' | 'waves'; map: MapChoice; theme: ThemeChoice; arenaSize: ArenaSize; botCount: number; coopBots: number; ffaSkill?: number; bestWave?: number; practiceBest?: number; music?: boolean; sfxVol: number; musicVol: number; records?: { streak?: number; dmg?: number; acc?: number }; aimAssist: boolean; v2?: boolean;
 }
 function load(): Saved {
   let s: Partial<Saved> = {};
@@ -53,7 +56,7 @@ function load(): Saved {
     // v2: Adaptive became the default (once), since it's the one that suits Hold the Fort
     weapon: s.weapon ?? 'shotgun', ability: s.ability ?? 'dash', color: s.color ?? 0, difficulty: (s as any).v2 ? s.difficulty ?? 'adaptive' : 'adaptive',
     quality: s.quality ?? 'auto', muted: !!s.muted, best: s.best, perf: s.perf, nick: s.nick ?? '',
-    soloMode: s.soloMode ?? 'solo', map: s.map && s.map in MAPS ? s.map : 'random', arenaSize: s.arenaSize ?? 'medium', botCount: s.botCount ?? 7, coopBots: s.coopBots ?? 5, bestWave: s.bestWave, music: s.music ?? true, sfxVol: s.sfxVol ?? 1, aimAssist: s.aimAssist ?? true, musicVol: s.musicVol ?? (s.music === false ? 0 : 0.8), v2: true,
+    soloMode: s.soloMode ?? 'solo', map: s.map && s.map in MAPS ? s.map : 'random', theme: s.theme && s.theme in THEMES ? s.theme : 'toy', arenaSize: s.arenaSize ?? 'medium', botCount: s.botCount ?? 7, coopBots: s.coopBots ?? 5, bestWave: s.bestWave, music: s.music ?? true, sfxVol: s.sfxVol ?? 1, aimAssist: s.aimAssist ?? true, musicVol: s.musicVol ?? (s.music === false ? 0 : 0.8), v2: true,
   };
 }
 
@@ -73,6 +76,11 @@ export class Game {
   shots: Shot[] = [];
   rails: Rail[] = [];
   mines: Mine[] = [];
+  nukes: Nuke[] = [];
+  /** The look of the current arena (a concrete theme; "Any" is resolved when a match starts). */
+  theme: ThemeId = 'toy';
+  weather: Weather;
+  private thunderT = 20;
   fires: Fire[] = [];
   private gravImp = new Map<string, { x: number; z: number }>();
   private gravSendT = 0;
@@ -122,6 +130,8 @@ export class Game {
     this.r = new Renderer(canvas);
     this.r.onShadowMode = dyn => setBlobShadows(!dyn);
     this.fx = new Fx(this.r.scene);
+    this.fx.onClink = (x, z) => this.audio.play('clink', x, z, 0.8);
+    this.weather = new Weather(this.r.scene);
     this.audio.setMuted(this.saved.muted);
     this.audio.setSfxVolume(this.saved.sfxVol); this.audio.music.setVolume(this.saved.musicVol);
     this.pendingWeapon = this.saved.weapon;
@@ -134,7 +144,7 @@ export class Game {
     this.hud = new Hud(this);
     this.input = new Input(this, canvas);
     this.wireNet();
-    this.newArena(MODES.solo.size);
+    this.newArena(MODES.solo.size, 'random', this.resolveTheme());
     this.frame = this.frame.bind(this);
     requestAnimationFrame(this.frame);
     // opened from an invite link: go straight to the lobby
@@ -143,12 +153,16 @@ export class Game {
 
   save() { try { localStorage.setItem(STORE, JSON.stringify(this.saved)); } catch { /* storage unavailable */ } }
 
-  newArena(size: number, map: MapId = 'random') {
+  newArena(size: number, map: MapId = 'random', theme: ThemeId = this.theme) {
     if (this.arena) { this.r.scene.remove(this.arena.group); this.arena.dispose(); }
-    this.arena = new Arena(this.seed, size, map);
+    this.theme = theme;
+    this.arena = new Arena(this.seed, size, map, theme);
     this.r.scene.add(this.arena.group);
+    this.r.setTheme(LOOKS[theme]);
+    this.weather.set(LOOKS[theme].weather, this.r.quality === 'low');
     this.r.bakeShadows();
     this.fx.floorAt = (x, z) => this.arena.floorAt(x, z);
+    this.weather.floorAt = this.fx.floorAt;
     for (const p of this.pickups) this.r.scene.remove(p.mesh);
     this.pickups = this.arena.pickups.map((s, i) => {
       let kind: PickKind = this.arena.pickupKinds[i] ?? (i === this.arena.pickups.length - 1 ? 'mega' : Math.floor(i / 4) === 1 ? 'nades' : 'health');
@@ -190,6 +204,18 @@ export class Game {
     return choice;
   }
 
+  /** "Any" picks a theme at random; otherwise the player's choice. */
+  resolveTheme(choice: ThemeChoice = this.saved.theme): ThemeId {
+    return choice === 'any' ? THEME_IDS[(Math.random() * THEME_IDS.length) | 0] : choice;
+  }
+
+  /** Menu: show the chosen theme on the arena spinning behind the menu. */
+  previewTheme() {
+    if (this.state !== 'menu' && this.state !== 'lobby') return;
+    const t = this.saved.theme === 'any' ? this.theme : this.saved.theme;
+    if (t !== this.theme) this.newArena(this.arena.n, this.arena.map, t);
+  }
+
   canDamage(a: Babo, v: Babo) { return a === v || !this.mode.teams || a.team !== v.team; }
   nameOf(b: Babo) { return b.isPlayer ? 'You' : b.name; }
 
@@ -204,7 +230,7 @@ export class Game {
     const names = [...BOT_NAMES].sort(() => Math.random() - 0.5);
     const nBots = mode.waves ? mode.bots : this.saved.botCount;   // wave slots are fixed; the director decides how many come
     for (let i = 0; i < nBots; i++) roster.push({ id: i + 1, name: names[i % names.length], color: cols[i % cols.length].hex, team: mode.teams ? 1 : i + 1, human: false });
-    this.begin(mode, (Math.random() * 1e9) | 0, roster, 0, this.resolveMap(mode), this.arenaN);
+    this.begin(mode, (Math.random() * 1e9) | 0, roster, 0, this.resolveMap(mode), this.arenaN, this.resolveTheme());
   }
 
   start() {
@@ -220,7 +246,7 @@ export class Game {
     const mode = MODES.practice, pc = this.saved.color % COLORS.length;
     const roster: RosterEntry[] = [{ id: 0, name: 'You', color: COLORS[pc].hex, team: 0, human: true }];
     for (let i = 0; i < mode.bots; i++) roster.push({ id: i + 1, name: `Target ${i + 1}`, color: 0xe8ecf5, team: i + 1, human: false });
-    this.begin(mode, (Math.random() * 1e9) | 0, roster, 0, 'random', 22);
+    this.begin(mode, (Math.random() * 1e9) | 0, roster, 0, 'random', 22, this.resolveTheme());
   }
 
   /** Practice targets: roll between random points, a little faster with every pop you land. */
@@ -254,15 +280,17 @@ export class Game {
   /** Cells across for a random arena, from the size picker. */
   get arenaN() { return ARENA_SIZES[this.saved.arenaSize]?.n ?? 28; }
 
-  private begin(mode: ModeDef, seed: number, roster: RosterEntry[], myId: number, map: MapId = 'random', size = mode.size) {
+  private begin(mode: ModeDef, seed: number, roster: RosterEntry[], myId: number, map: MapId = 'random', size = mode.size, theme: ThemeId = 'toy') {
     this.audio.unlock();
     for (const b of this.babos) this.r.scene.remove(b.root);
     for (const s of this.shots) if (s.mesh) this.r.scene.remove(s.mesh);
     for (const n of this.nades) this.r.scene.remove(n.mesh);
     for (const m of this.mines) this.r.scene.remove(m.mesh);
-    this.babos = []; this.shots = []; this.nades = []; this.rails = []; this.mines = []; this.fires = [];
+    for (const n of this.nukes) this.dropNuke(n);
+    this.babos = []; this.shots = []; this.nades = []; this.rails = []; this.mines = []; this.fires = []; this.nukes = [];
     this.mode = mode; this.seed = seed; this.endReason = ''; this.map = map;
-    this.newArena(size, map);
+    this.newArena(size, map, theme);
+    this.thunderT = 12 + Math.random() * 15;
     this.fx.clear();
     const rnd = mulberry(seed ^ 0x5bd1e995);
     for (const e of roster) {
@@ -543,6 +571,13 @@ export class Game {
       this.fx.glow(fx, sy, fz, Math.cos(a) * s, Math.random() * 2, Math.sin(a) * s, 0.06 + Math.random() * 0.06, w.color, 0.08 + Math.random() * 0.06);
     }
     if (w.pellets > 1) this.fx.puff(fx, sy, fz, 0.18, 0.4, b.aimX * 3, 0.6, b.aimZ * 3, 1.5);
+    // spent casings out of the side of the gun (a red shell for the shotgun)
+    if (w.kind === 'bullet') {
+      const side = 2.2 + Math.random() * 1.6, shell = w.pellets > 1;
+      this.fx.casing(b.x + b.aimX * 0.45, sy + 0.1, b.z + b.aimZ * 0.45,
+        -b.aimZ * side - b.aimX * 0.8 + b.vx * 0.6 + (Math.random() - 0.5), 3 + Math.random() * 1.5, b.aimX * side - b.aimZ * 0.8 + b.vz * 0.6 + (Math.random() - 0.5),
+        shell ? 0xd8453a : 0xe0b04a, shell ? 1.7 : 1);
+    }
     this.audio.play(w.id, b.x, b.z, b.isPlayer ? 1 : 0.75);
     if (b.isPlayer) this.r.addShake(w.kind === 'rocket' || w.kind === 'rail' ? 0.25 : w.pellets > 1 ? 0.3 : 0.05);
   }
@@ -592,7 +627,7 @@ export class Game {
       this.fx.glow(v.x, ty, v.z, 0, 1, 0, 0.12, 0xe0f6ff, 0.12, 0);
       if (b.local) {
         const dx = v.x - fx, dz = v.z - fz, l = Math.hypot(dx, dz) || 1;
-        this.hit(b, v, dmg, (dx / l) * w.knock, (dz / l) * w.knock, 0);
+        this.hit(b, v, dmg, (dx / l) * w.knock, (dz / l) * w.knock, 0, 0, 'lightning');
       }
       fx = v.x; fy = ty; fz = v.z; dmg *= ZAP.falloff;
     }
@@ -616,7 +651,7 @@ export class Game {
       const px = x0 + sdx * u, pz = z0 + sdz * u;
       if (Math.hypot(v.x - px, v.z - pz) > v.rad + 0.1) continue;
       if (b === this.player && !hitSet.size) this.ms.hits++;
-      this.hit(b, v, w.damage, b.aimX * w.knock, b.aimZ * w.knock, 2); hitSet.add(v.id);
+      this.hit(b, v, w.damage, b.aimX * w.knock, b.aimZ * w.knock, 2, 0, 'railgun'); hitSet.add(v.id);
       for (let k = 0; k < 6; k++) this.fx.bit(v.x, v.y + 0.5, v.z, b.aimX * 6 + (Math.random() - 0.5) * 4, 2 + Math.random() * 3, b.aimZ * 6 + (Math.random() - 0.5) * 4, 0.07, v.color, 0.7);
     }
   }
@@ -657,7 +692,7 @@ export class Game {
         if (v === b || !v.alive || !this.canDamage(b, v) || Math.abs(v.y - b.y) > 1.3) continue;
         const dx = v.x - b.x, dz = v.z - b.z, d = Math.hypot(dx, dz);
         if (d > GRAV.flingR || (d > 1.2 && (dx * b.aimX + dz * b.aimZ) / d < 0.3)) continue;
-        this.hit(b, v, w.damage, b.aimX * w.knock, b.aimZ * w.knock, 5, 2);
+        this.hit(b, v, w.damage, b.aimX * w.knock, b.aimZ * w.knock, 5, 2, 'gravity');
       }
       b.vx -= b.aimX * w.recoil; b.vz -= b.aimZ * w.recoil;
       this.flingFx(b);
@@ -708,7 +743,7 @@ export class Game {
       if (Math.random() < dt * 30) this.fx.glow(v.x + (Math.random() - 0.5) * 0.6, v.y + 0.5 + Math.random() * 0.4, v.z + (Math.random() - 0.5) * 0.6, 0, 1.6, 0, 0.1 + Math.random() * 0.12, Math.random() < 0.5 ? 0xff8a2a : 0xffd35a, 0.3, 0);
       const att = this.babos[v.burnBy];
       // a quarter-second tick of afterburn
-      if (att?.local && Math.floor(before * 4) !== Math.floor(Math.max(0, v.burnT) * 4)) this.hit(att, v, BURN.dps / 4, 0, 0, 0);
+      if (att?.local && Math.floor(before * 4) !== Math.floor(Math.max(0, v.burnT) * 4)) this.hit(att, v, BURN.dps / 4, 0, 0, 0, 0, 'flamethrower');
     }
     for (let i = this.fires.length - 1; i >= 0; i--) {
       const f = this.fires[i]; f.t -= dt;
@@ -720,7 +755,7 @@ export class Game {
         if (v === att || !v.alive || !this.canDamage(att, v)) continue;
         if (Math.hypot(v.x - f.x, v.z - f.z) > BURN.patchR || Math.abs(v.y - f.y) > 0.6) continue;
         // standing in the fire hurts on top of the afterburn
-        if (tick) this.hit(att, v, BURN.patchDps / 4, 0, 0, 0, v.burnT > BURN.t - 0.4 ? 0 : 1);
+        if (tick) this.hit(att, v, BURN.patchDps / 4, 0, 0, 0, v.burnT > BURN.t - 0.4 ? 0 : 1, 'flamethrower');
       }
     }
   }
@@ -759,8 +794,52 @@ export class Game {
       const trip = this.babos.some(v => v !== att && v.alive && this.canDamage(att, v) && Math.abs(v.y - m.y) < 1 && Math.hypot(v.x - m.x, v.z - m.z) < MINE.trigger + v.rad - BALL.radius);
       if (!trip) continue;
       this.removeMine(m);
-      this.explode(m.x, m.z, m.owner, MINE.radius, MINE.damage, MINE.knock, true, m.y);
+      this.explode(m.x, m.z, m.owner, MINE.radius, MINE.damage, MINE.knock, true, m.y, 'mine');
       if (this.online) this.net.send({ k: 'boom', o: m.owner, x: r2(m.x), z: r2(m.z), r: MINE.radius, y: r2(m.y), m: 1 });
+    }
+  }
+
+  // ---------- Nuke Bot ----------
+  private addNuke(b: Babo) {
+    const x = b.x - b.aimX * 0.15, z = b.z - b.aimZ * 0.15, y = this.arena.floorAt(x, z);
+    const mesh = nukeMesh(b.color); mesh.position.set(x, y, z); this.r.scene.add(mesh);
+    // the danger zone, drawn on the floor so everyone can see how far to run
+    const warn = new THREE.Mesh(nukeRingGeo, new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff3b30).multiplyScalar(1.4), transparent: true, opacity: 0.25, depthWrite: false, toneMapped: false }));
+    warn.position.set(x, y + 0.03, z); warn.scale.setScalar(NUKE.radius); this.r.scene.add(warn);
+    const disc = new THREE.Mesh(nukeDiscGeo, new THREE.MeshBasicMaterial({ color: 0xff3b30, transparent: true, opacity: 0.04, depthWrite: false })); warn.add(disc); warn.userData.disc = disc;
+    this.nukes.push({ owner: b.id, x, z, y, t: NUKE.fuse, beepT: 0, mesh, warn, cosmetic: !b.local });
+    this.audio.play('nukedrop', x, z);
+  }
+
+  private dropNuke(n: Nuke) {
+    this.r.scene.remove(n.mesh); this.r.scene.remove(n.warn); (n.warn.material as THREE.Material).dispose(); ((n.warn.userData.disc as THREE.Mesh | undefined)?.material as THREE.Material | undefined)?.dispose();
+    const i = this.nukes.indexOf(n); if (i >= 0) this.nukes.splice(i, 1);
+  }
+
+  private nukeBlast(n: Nuke, authoritative: boolean) {
+    this.dropNuke(n);
+    this.explode(n.x, n.z, n.owner, NUKE.radius, authoritative ? NUKE.damage : 0, NUKE.knock, authoritative, n.y, 'nuke');
+    this.fx.nuke(n.x, n.z, NUKE.radius, n.y);
+    this.audio.play('nuke', n.x, n.z);
+    const pd = Math.hypot(this.player.x - n.x, this.player.z - n.z);
+    if (!reducedMotion) this.r.addShake(Math.max(0.15, 1.1 - pd / 22));
+  }
+
+  private stepNukes(dt: number) {
+    for (let i = this.nukes.length - 1; i >= 0; i--) {
+      const n = this.nukes[i];
+      n.t -= dt; n.beepT -= dt;
+      const k = Math.max(0, n.t / NUKE.fuse);   // 1 -> 0 as it counts down
+      if (n.beepT <= 0 && n.t > 0) { n.beepT = 0.07 + 0.43 * k; this.audio.play('beep', n.x, n.z, 1.2 - k * 0.5); (n.mesh.userData.light as THREE.Mesh).visible = true; }
+      else if (n.beepT < 0.04 + 0.2 * k) (n.mesh.userData.light as THREE.Mesh).visible = false;
+      const m = n.warn.material as THREE.MeshBasicMaterial;
+      m.opacity = 0.3 + 0.45 * (1 - k) * (0.6 + 0.4 * Math.sin(this.clock * (10 + 30 * (1 - k))));
+      ((n.warn.userData.disc as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = 0.04 + 0.1 * (1 - k);
+      n.mesh.scale.setScalar(1.35 * (1 + (1 - k) * 0.15 * (0.5 + 0.5 * Math.sin(this.clock * 40))));
+      if (n.t > 0) continue;
+      // the owner's client deals the damage and tells the other; the other's copy waits a moment for that
+      if (!n.cosmetic) { this.nukeBlast(n, true); if (this.online) this.net.send({ k: 'boom', o: n.owner, x: r2(n.x), z: r2(n.z), r: NUKE.radius, y: r2(n.y), m: 2 }); }
+      else if (n.t < -0.6) this.nukeBlast(n, false);
     }
   }
 
@@ -778,7 +857,7 @@ export class Game {
         if (Math.hypot(v.x - (r.x0 + sdx * u), v.z - (r.z0 + sdz * u)) > v.rad + 0.05) continue;
         r.hit.add(v.id);
         const l = Math.sqrt(l2), lw = WEAPONS.railgun.linger!;
-        this.hit(att, v, lw.damage, (sdx / l) * 3, (sdz / l) * 3, 1);
+        this.hit(att, v, lw.damage, (sdx / l) * 3, (sdz / l) * 3, 1, 0, 'railgun');
         this.fx.flash(v.x, v.y + 0.6, v.z, WEAPONS.railgun.color, 8, 0.12);
         this.audio.play('stab', v.x, v.z, 0.6);
       }
@@ -820,8 +899,9 @@ export class Game {
   }
 
   /** The attacker's owner decides every hit. Local victims take it now; remote ones get a message. */
-  /** flag: 1 sets them alight (flamethrower), 2 marks them as flung (gravity gun wall slams). */
-  hit(att: Babo, v: Babo, dmg: number, kx: number, kz: number, vy = 0, flag = 0) {
+  /** flag: 1 sets them alight (flamethrower), 2 marks them as flung (gravity gun wall slams).
+   *  src: what did it (a gun, 'mine', 'grenade', 'nuke'...), for the kill feed. */
+  hit(att: Babo, v: Babo, dmg: number, kx: number, kz: number, vy = 0, flag = 0, src: string = att.weapon) {
     if (!att.local || !v.alive || !this.canDamage(att, v)) return;
     if (this.mode.waves && !att.human && v.human) dmg *= this.director.botDamage(this.wv.n);
     if (att === this.player && v !== att && v.spawnShield <= 0) this.ms.dmg += dmg * (v.abT > 0 && v.ability === 'bubble' ? 0.3 : 1);
@@ -829,15 +909,15 @@ export class Game {
     if (this.ffa.has(att.id) && v !== att && v.spawnShield <= 0 && !v.human) this.ffa.dealtDamage(att.id, dmg);
     if (flag & 1) { v.burnT = BURN.t; v.burnBy = att.id; }
     if (flag & 2) { v.flungT = 1; v.flungBy = att.id; }
-    if (att.isPlayer && v !== att && v.spawnShield <= 0 && dmg >= 1) { this.hud.floater(v.x, v.z, Math.round(dmg * (v.abT > 0 && v.ability === 'bubble' ? 0.3 : 1))); this.audio.play('hit', undefined, undefined, 0.8); }
-    if (v.local) this.applyDamage(v, dmg, att.id, kx, kz, vy, flag);
+    if (att.isPlayer && v !== att && v.spawnShield <= 0 && dmg >= 1) { this.hud.floater(v.x, v.z, Math.round(dmg * (v.abT > 0 && v.ability === 'bubble' ? 0.3 : 1))); this.audio.play('hit', undefined, undefined, 0.8); this.hud.hitMark(false); }
+    if (v.local) this.applyDamage(v, dmg, att.id, kx, kz, vy, flag, src);
     else {
       v.hurtT = 0.12;
-      this.net.send({ k: 'hit', v: v.id, a: att.id, d: r2(dmg), x: r2(kx), z: r2(kz), y: r2(vy), ...(flag ? { f: flag } : {}) });
+      this.net.send({ k: 'hit', v: v.id, a: att.id, d: r2(dmg), x: r2(kx), z: r2(kz), y: r2(vy), w: src, ...(flag ? { f: flag } : {}) });
     }
   }
 
-  applyDamage(v: Babo, dmg: number, by: number, kx: number, kz: number, vy = 0, flag = 0) {
+  applyDamage(v: Babo, dmg: number, by: number, kx: number, kz: number, vy = 0, flag = 0, src = '') {
     if (!v.alive) return;
     if (flag & 1) { v.burnT = BURN.t; v.burnBy = by; }
     if (flag & 2) { v.flungT = 1; v.flungBy = by; }
@@ -848,26 +928,27 @@ export class Game {
     if (v.spawnShield > 0) return;
     if (this.mode.practice && v.human) return;   // nothing can hurt you on the range (not even your own rockets)
     v.hp -= dmg; if (dmg >= 1) v.hurtT = 0.12;
-    if (by !== v.id) { v.lastHitBy = by; v.lastHitT = this.clock; }
+    if (by !== v.id) { v.lastHitBy = by; v.lastHitT = this.clock; v.lastSrc = src; }
     if (v.isPlayer && by >= 0 && by !== v.id && dmg >= 1 && this.babos[by]) this.hud.damageFrom(this.babos[by]);
     if (v.isPlayer) { this.hud.hurt(Math.min(1, dmg / 40)); this.r.addShake(Math.min(0.5, dmg / 60)); this.audio.play('hurt'); }
     if (v.hp <= 0) {
-      let killer = by;
-      if ((by === v.id || by < 0) && v.lastHitBy >= 0 && this.clock - v.lastHitT < 3) killer = v.lastHitBy;
-      if (this.online) this.net.send({ k: 'die', v: v.id, by: killer });
-      this.onDeath(v, killer);
+      let killer = by, cause = src;
+      if ((by === v.id || by < 0) && v.lastHitBy >= 0 && this.clock - v.lastHitT < 3) { killer = v.lastHitBy; cause = v.lastSrc; }
+      if (this.online) this.net.send({ k: 'die', v: v.id, by: killer, w: cause });
+      this.onDeath(v, killer, cause);
     }
   }
 
   /** Runs on every client for every death (local ones directly, remote ones from the network). */
-  onDeath(v: Babo, killer: number) {
+  onDeath(v: Babo, killer: number, cause = '') {
     if (!v.root.visible && !v.alive && !v.local) { /* already hidden by snapshot; still show the burst */ }
     v.alive = false; v.root.visible = false; v.deaths++; v.streak = 0; v.abT = 0; v.burnT = 0; v.flungT = 0; v.gravT = 0;
     if (v.local) v.respawnT = this.mode.practice && !v.human ? 0.5 : BALL.respawn;
     const k = this.babos[killer];
     const knifed = !!(k && k !== v && k.weapon === 'spikes');
     if (k && k !== v) { k.kills++; k.streak++; } else if (k === v) { v.kills = Math.max(0, v.kills - 1); }
-    this.hud.feed(k && k !== v ? k : null, v, knifed);
+    this.hud.feed(k && k !== v ? k : null, v, knifed, cause || k?.weapon || '');
+    if (k?.isPlayer && k !== v) this.hud.hitMark(true);
     if (this.mode.gun) this.gunGameKill(v, k && k !== v ? k : null, knifed);
     else if (k?.isPlayer && k !== v) {
       this.audio.play('kill');
@@ -886,9 +967,9 @@ export class Game {
       if (drops.length >= GUN_RESPAWN.maxDrops) this.removePickup(drops[0]);
       this.addGun(v.weapon, v.x, v.z, `${v.id}:${v.deaths}`);
     }
-    if (k === this.player && k !== v) { this.ms.gunPops[k.weapon] = (this.ms.gunPops[k.weapon] ?? 0) + 1; this.ms.streak = Math.max(this.ms.streak, k.streak); }
+    if (k === this.player && k !== v) { const gp = cause in WEAPONS ? cause : k.weapon; this.ms.gunPops[gp] = (this.ms.gunPops[gp] ?? 0) + 1; this.ms.streak = Math.max(this.ms.streak, k.streak); }
     if (v === this.player) this.killCam = k && k !== v ? k.id : -1;
-    if (v.isPlayer) this.hud.onPlayerDeath(k && k !== v ? k : null);
+    if (v.isPlayer) this.hud.onPlayerDeath(k && k !== v ? k : null, cause);
     if (v.gy < 0.1) this.arena.splat(v.x, v.z, 1.1 + Math.random() * 0.4, v.color);
     this.audio.play('pop', v.x, v.z);
     this.fx.flash(v.x, 1 + v.y, v.z, v.color, 18, 0.25);
@@ -933,7 +1014,7 @@ export class Game {
   }
 
   /** Explosion visuals everywhere; damage only where the owner is simulated. */
-  explode(x: number, z: number, owner: number, r: number, dmg: number, knock: number, authoritative: boolean, y = this.arena.floorAt(x, z)): number {
+  explode(x: number, z: number, owner: number, r: number, dmg: number, knock: number, authoritative: boolean, y = this.arena.floorAt(x, z), src = 'rocket'): number {
     this.fx.explosion(x, z, r, y);
     if (y < 0.1) this.arena.scorch(x, z, r * 0.7);
     this.audio.play('boom', x, z);
@@ -952,7 +1033,7 @@ export class Game {
       const k = Math.max(0, 1 - Math.max(0, d - b.rad) / r);
       const nx = d > 0.01 ? dx / d : Math.random() - 0.5, nz = d > 0.01 ? dz / d : Math.random() - 0.5;
       if (b !== att && this.canDamage(att, b)) hits++;
-      this.hit(att, b, dmg * Math.pow(k, 0.7) * (b.id === owner ? 0.45 : 1), nx * knock * k, nz * knock * k, 6 * k);
+      this.hit(att, b, dmg * Math.pow(k, 0.7) * (b.id === owner ? 0.45 : 1), nx * knock * k, nz * knock * k, 6 * k, 0, src);
     }
     return hits;
   }
@@ -976,7 +1057,7 @@ export class Game {
         if (d > WAVE.radius + v.rad) continue;
         if (this.arena.raycast(b.x, b.z, v.x, v.z, b.y + 0.5, true) >= 0) continue;
         const k = 1 - Math.max(0, d - b.rad - v.rad) / WAVE.radius;
-        this.hit(b, v, WAVE.damage * (0.5 + 0.5 * k), (dx / (d || 1)) * WAVE.knock * (0.5 + 0.5 * k), (dz / (d || 1)) * WAVE.knock * (0.5 + 0.5 * k), 4);
+        this.hit(b, v, WAVE.damage * (0.5 + 0.5 * k), (dx / (d || 1)) * WAVE.knock * (0.5 + 0.5 * k), (dz / (d || 1)) * WAVE.knock * (0.5 + 0.5 * k), 4, 0, 'shockwave');
       }
     }
   }
@@ -984,6 +1065,7 @@ export class Game {
   /** Effects only; also used when a remote ball's ability counter changes. */
   abilityFx(b: Babo) {
     if (b.ability === 'mine') { this.addMine(b); return; }
+    if (b.ability === 'nuke') { this.addNuke(b); return; }
     if (b.ability === 'dash') {
       this.audio.play('dash', b.x, b.z);
       for (let i = 0; i < 8; i++) this.fx.puff(b.x, 0.3, b.z, 0.22, 0.35, (Math.random() - 0.5) * 2, 0.5, (Math.random() - 0.5) * 2, 1.2);
@@ -1013,7 +1095,7 @@ export class Game {
         if (d > b.rad + v.rad + 0.32 || Math.abs(v.y - b.y) > 0.8) continue;
         if (spikeWeapon) b.spikeCd.set(v.id, this.clock + 0.6); else b.spikeHits.add(v.id);
         const nx = dx / (d || 1), nz = dz / (d || 1);
-        this.hit(b, v, spikeWeapon ? 100 : SPIKES.damage, nx * SPIKES.knock, nz * SPIKES.knock, 3);
+        this.hit(b, v, spikeWeapon ? 100 : SPIKES.damage, nx * SPIKES.knock, nz * SPIKES.knock, 3, 0, spikeWeapon ? 'spikes' : 'spikesab');
         b.vx -= nx * 4; b.vz -= nz * 4;
         this.audio.play('stab', v.x, v.z);
         for (let i = 0; i < 8; i++) this.fx.bit(v.x - nx * 0.4, 0.6 + v.y, v.z - nz * 0.4, nx * 6 + (Math.random() - 0.5) * 5, 2 + Math.random() * 4, nz * 6 + (Math.random() - 0.5) * 5, 0.07, v.color, 0.7);
@@ -1086,6 +1168,7 @@ export class Game {
     this.stepRails(dt);
     this.stepBurn(dt);
     this.stepMines(dt);
+    this.stepNukes(dt);
     this.stepNades(dt);
     this.stepPickups(dt);
   }
@@ -1115,6 +1198,7 @@ export class Game {
     const ml = Math.hypot(b.moveX, b.moveZ);
     const sp = Math.hypot(b.vx, b.vz);
     const flung = b.flungT > 0.45;   // just flung by a gravity gun: no steering, barely any friction
+    const ice = this.arena.hasIce && b.y <= b.gy + 0.05 && this.arena.iceAt(b.x, b.z);   // snow: frozen puddles barely grip
     if (dashing) { /* keep the burst */ }
     else if (flung) { const k = Math.exp(-0.7 * dt); b.vx *= k; b.vz *= k; }
     else if (ml > 0.01) {
@@ -1122,13 +1206,13 @@ export class Game {
       const vmax = BALL.maxSpeed * (b.weapon === 'spikes' ? 1.15 : 1) * (b.boss ? BOSS.speed : 1);   // the Gun Game finale is a bit quicker
       const tx = mx * vmax, tz = mz * vmax;
       let dx = tx - b.vx, dz = tz - b.vz; const dl = Math.hypot(dx, dz);
-      const lim = BALL.accel * dt * (sp > BALL.maxSpeed * 1.1 ? 0.35 : 1);
+      const lim = BALL.accel * dt * (sp > BALL.maxSpeed * 1.1 ? 0.35 : 1) * (ice ? ICE.grip : 1);
       if (dl > lim) { dx *= lim / dl; dz *= lim / dl; }
       b.vx += dx; b.vz += dz;
     } else {
-      const k = Math.exp(-BALL.coast * dt); b.vx *= k; b.vz *= k;
+      const k = Math.exp(-BALL.coast * (ice ? ICE.coast : 1) * dt); b.vx *= k; b.vz *= k;
     }
-    if (!dashing && !flung && sp > BALL.maxSpeed) { const k = Math.exp(-1.6 * dt); b.vx *= k; b.vz *= k; }
+    if (!dashing && !flung && sp > BALL.maxSpeed) { const k = Math.exp(-1.6 * (ice ? ICE.coast : 1) * dt); b.vx *= k; b.vz *= k; }
     b.x += b.vx * dt; b.z += b.vz * dt;
     // a big ball's leading edge reaches the top of a ramp before its centre does, so let it step up a little higher
     const hit = this.arena.collide(b, b.rad, b.y + Math.max(0, b.rad - BALL.radius) * 0.6);
@@ -1151,7 +1235,7 @@ export class Game {
           this.fx.flash(b.x - hit.nx * 0.5, b.y + 0.5, b.z - hit.nz * 0.5, 0xffffff, 14, 0.15);
           for (let i = 0; i < 8; i++) this.fx.puff(b.x - hit.nx * 0.5, 0.4 + b.y, b.z - hit.nz * 0.5, 0.25, 0.5, hit.nx * 3 + (Math.random() - 0.5) * 3, 1, hit.nz * 3 + (Math.random() - 0.5) * 3, 1);
           this.r.addShake(b.isPlayer ? 0.5 : 0.15); this.audio.play('slam', b.x, b.z);
-          this.applyDamage(b, dmg, b.flungBy, 0, 0, 2);
+          this.applyDamage(b, dmg, b.flungBy, 0, 0, 2, 0, 'gravity');
         }
       }
     }
@@ -1205,7 +1289,7 @@ export class Game {
           } else {
             const back = t >= 0 && !victim ? 0.15 : 0;
             const ex = hx - (s.vx / l) * back, ez = hz - (s.vz / l) * back;
-            if (victim && shooter) this.hit(shooter, victim, w.damage, (s.vx / l) * w.knock, (s.vz / l) * w.knock);
+            if (victim && shooter) this.hit(shooter, victim, w.damage, (s.vx / l) * w.knock, (s.vz / l) * w.knock, 0, 0, 'rocket');
             const blasted = this.explode(ex, ez, s.owner, w.splash!.radius, w.splash!.damage, w.splash!.knock, true, s.y - 0.55);
             if (s.owner === this.player.id && (victim || blasted)) this.ms.hits++;
             if (this.online) this.net.send({ k: 'boom', o: s.owner, x: r2(ex), z: r2(ez), r: w.splash!.radius, y: r2(s.y - 0.55) });
@@ -1220,7 +1304,7 @@ export class Game {
             const travelled = s.dist + Math.sqrt(l2) * t;
             const range = w.speed * w.life;
             const dmg = w.damage * (1 - (w.falloff ?? 0) * Math.min(1, travelled / range));
-            this.hit(shooter, victim, dmg, (s.vx / l) * w.knock, (s.vz / l) * w.knock, 0, w.kind === 'flame' ? 1 : 0);
+            this.hit(shooter, victim, dmg, (s.vx / l) * w.knock, (s.vz / l) * w.knock, 0, w.kind === 'flame' ? 1 : 0, s.w);
           }
           for (let k = 0; k < 3; k++) this.fx.bit(hx, s.y, hz, s.vx * 0.12 + (Math.random() - 0.5) * 4, 2 + Math.random() * 3, s.vz * 0.12 + (Math.random() - 0.5) * 4, 0.06, victim.color, 0.6);
           if (Math.random() < 0.25 && victim.gy < 0.1) this.arena.splat(hx + s.vx * 0.02, hz + s.vz * 0.02, 0.18 + Math.random() * 0.15, victim.color);
@@ -1273,7 +1357,7 @@ export class Game {
         this.r.scene.remove(n.mesh); this.nades.splice(i, 1);
         // grenade flight is deterministic, so every client explodes it in the same place;
         // only the thrower's client deals the damage
-        this.explode(n.x, n.z, n.owner, GRENADE.radius, GRENADE.damage, GRENADE.knock, !n.cosmetic, n.y - 0.17);
+        this.explode(n.x, n.z, n.owner, GRENADE.radius, GRENADE.damage, GRENADE.knock, !n.cosmetic, n.y - 0.17, 'grenade');
       }
     }
   }
@@ -1434,12 +1518,12 @@ export class Game {
     const names = [...BOT_NAMES].sort(() => Math.random() - 0.5);
     const nBots = modeId === 'coop' ? this.saved.coopBots : mode.bots;
     for (let i = 0; i < nBots; i++) roster.push({ id: i + 2, name: names[i], color: cols[i % cols.length].hex, team: mode.teams ? 1 : i + 2, human: false });
-    const offer: StartOffer = { e: (Math.random() * 1e9) | 0, mode: modeId, seed: (Math.random() * 1e9) | 0, guest: friend.peer, roster, diff: this.saved.difficulty, map: this.resolveMap(mode), n: this.arenaN };
+    const offer: StartOffer = { e: (Math.random() * 1e9) | 0, mode: modeId, seed: (Math.random() * 1e9) | 0, guest: friend.peer, roster, diff: this.saved.difficulty, map: this.resolveMap(mode), n: this.arenaN, th: this.resolveTheme() };
     this.offer = offer; this.lastMode = modeId;
     this.net.clearMatch();
     this.net.set({ start: offer });
     this.online = true; this.host = true; this.partner = friend.peer; this.epoch = offer.e;
-    this.begin(mode, offer.seed, roster, 0, offer.map as MapId, offer.n);
+    this.begin(mode, offer.seed, roster, 0, offer.map as MapId, offer.n, offer.th as ThemeId);
   }
 
   /** Guest side: join when a friend's offer names us. Simultaneous offers: lower peer id hosts. */
@@ -1456,7 +1540,7 @@ export class Game {
       this.net.clearMatch();
       this.online = true; this.host = false; this.partner = p.peer; this.epoch = o.e;
       this.lastMode = o.mode;
-      this.begin(MODES[o.mode], o.seed, o.roster, 1, (o.map || 'random') as MapId, o.n ?? MODES[o.mode].size);
+      this.begin(MODES[o.mode], o.seed, o.roster, 1, (o.map || 'random') as MapId, o.n ?? MODES[o.mode].size, (o.th && o.th in LOOKS ? o.th : 'toy') as ThemeId);
       return;
     }
   }
@@ -1465,11 +1549,17 @@ export class Game {
     if (!this.online || this.state === 'lobby' || this.state === 'menu') return;
     const b = (id: number) => this.babos[id];
     switch (e.k) {
-      case 'hit': { const v = b(e.v); if (v && v.local) this.applyDamage(v, e.d, e.a, e.x, e.z, e.y, e.f ?? 0); break; }
-      case 'die': { const v = b(e.v); if (v && !v.local) this.onDeath(v, e.by); break; }
+      case 'hit': { const v = b(e.v); if (v && v.local) this.applyDamage(v, e.d, e.a, e.x, e.z, e.y, e.f ?? 0, e.w ?? ''); break; }
+      case 'die': { const v = b(e.v); if (v && !v.local) this.onDeath(v, e.by, e.w ?? ''); break; }
       case 'nade': if (b(e.o) && !b(e.o).local) this.addNade(e.o, e.x, e.y, e.z, e.vx, e.vy, e.vz, true); break;
       case 'boom': {
         if (b(e.o)?.local) break;
+        if (e.m === 2) {
+          let best: Nuke | null = null, bd = 4;
+          for (const n of this.nukes) if (n.owner === e.o) { const d = Math.hypot(n.x - e.x, n.z - e.z); if (d < bd) { bd = d; best = n; } }
+          this.nukeBlast(best ?? { owner: e.o, x: e.x, z: e.z, y: e.y ?? 0, t: 0, beepT: 0, mesh: new THREE.Group(), warn: new THREE.Mesh(), cosmetic: true }, false);
+          break;
+        }
         if (e.m) { this.removeMineNear(e.o, e.x, e.z); this.explode(e.x, e.z, e.o, e.r, 0, 0, false, e.y ?? 0); break; }
         let bi = -1, bd = 1e9;
         this.shots.forEach((s, i) => { if (s.owner === e.o && s.mesh) { const d = Math.hypot(s.x - e.x, s.z - e.z); if (d < bd) { bd = d; bi = i; } } });
@@ -1630,6 +1720,12 @@ export class Game {
     const dt = simulate ? raw : 0;
     for (const b of this.babos) if (b.alive) updateBaboVisual(b, dt);
     this.fx.update(dt);
+    const f = this.r.focus; this.weather.update(raw, inMatch ? f.x : 0, inMatch ? f.z : 0, this.clock);
+    if (this.theme === 'city' && (this.state === 'playing' || !inMatch)) {
+      // the odd thunderclap: a flash, then the rumble a moment later
+      this.thunderT -= raw;
+      if (this.thunderT <= 0) { this.thunderT = 25 + Math.random() * 35; this.r.skyFlash(); setTimeout(() => { if (this.state === 'playing') this.audio.play('thunder', undefined, undefined, 0.8); }, 500 + Math.random() * 900); }
+    }
     this.drawTracers();
     if (!inMatch) for (const p of this.pickups) { const item = p.mesh.userData.item as THREE.Object3D; item.rotation.y += raw * 2; item.visible = true; }
     this.arena.flushPaint(this.r.renderer, raw);
@@ -1642,7 +1738,7 @@ export class Game {
     }
     this.updateMusic();
     const t1 = performance.now();
-    if (draw) this.r.render();
+    if (draw) this.r.render(raw);
     const t2 = performance.now();
     this.hud.update(raw);
     const t3 = performance.now();
@@ -1675,6 +1771,8 @@ export class Game {
   /** Music follows the match: menu groove outside it, and the match track heats up near the end. */
   private updateMusic() {
     const m = this.audio.music;
+    const wx = LOOKS[this.theme].weather;
+    this.audio.ambience(this.state === 'countdown' || this.state === 'playing' ? (wx === 'rain' ? 'rain' : wx === 'snow' ? 'wind' : '') : '');
     if (this.state === 'menu' || this.state === 'lobby') { m.set('menu'); return; }
     if (this.state === 'over') { m.set('off'); return; }
     if (this.state === 'countdown') { m.set('match', 0); return; }
@@ -1776,6 +1874,29 @@ function mineMesh(color: number) {
   if (!lm) { lm = new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(2.2), toneMapped: false }); mineLightMats.set(color, lm); }
   const light = new THREE.Mesh(mineLightGeo, lm); light.position.y = 0.14; g.add(light); g.userData.light = light;
   const ring = new THREE.Mesh(mineRingGeo, lm); ring.position.y = 0.02; g.add(ring);
+  return g;
+}
+
+const nukeBodyGeo = new THREE.SphereGeometry(0.32, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2);
+const nukeBaseGeo = new THREE.CylinderGeometry(0.36, 0.4, 0.14, 18);
+const nukeBandGeo = new THREE.TorusGeometry(0.33, 0.035, 6, 24).rotateX(Math.PI / 2);
+const nukeAntGeo = new THREE.CylinderGeometry(0.015, 0.015, 0.3, 5);
+const nukeLightGeo = new THREE.SphereGeometry(0.07, 10, 8);
+const nukeRingGeo = new THREE.RingGeometry(0.94, 1, 64).rotateX(-Math.PI / 2);
+const nukeDiscGeo = new THREE.CircleGeometry(0.94, 64).rotateX(-Math.PI / 2);
+const nukeBodyMat = new THREE.MeshStandardMaterial({ color: 0xe8e4da, roughness: 0.35, metalness: 0.2 });
+const nukeBaseMat = new THREE.MeshStandardMaterial({ color: 0x2d3142, roughness: 0.5, metalness: 0.4 });
+const nukeLightMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff2a1a).multiplyScalar(3), toneMapped: false });
+const nukeBandMats = new Map<number, THREE.Material>();
+/** A little domed robot with a blinking antenna, banded in its owner's colour. */
+function nukeMesh(color: number) {
+  const g = new THREE.Group();
+  const base = new THREE.Mesh(nukeBaseGeo, nukeBaseMat); base.position.y = 0.07; base.castShadow = true; g.add(base);
+  const body = new THREE.Mesh(nukeBodyGeo, nukeBodyMat); body.position.y = 0.14; body.castShadow = true; g.add(body);
+  let bm = nukeBandMats.get(color); if (!bm) { bm = new THREE.MeshStandardMaterial({ color, roughness: 0.4 }); nukeBandMats.set(color, bm); }
+  const band = new THREE.Mesh(nukeBandGeo, bm); band.position.y = 0.16; g.add(band);
+  const ant = new THREE.Mesh(nukeAntGeo, nukeBaseMat); ant.position.y = 0.58; g.add(ant);
+  const light = new THREE.Mesh(nukeLightGeo, nukeLightMat); light.position.y = 0.75; g.add(light); g.userData.light = light;
   return g;
 }
 

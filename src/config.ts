@@ -148,6 +148,17 @@ export const MAPS = {
   towers: { name: 'Towers', blurb: 'Two raised towers in opposite corners' },
 } as const;
 export type MapChoice = keyof typeof MAPS;
+/** Looks and weather. Snow has icy patches you slide on; the city has rain and the odd thunderclap. */
+export const THEMES = {
+  toy: { name: 'Toy room', blurb: 'Bright blocks on a tiled floor' },
+  snow: { name: 'Snow', blurb: 'Snowfall, and icy patches you slide across' },
+  city: { name: 'City', blurb: 'Rain on wet streets, and the odd thunderclap' },
+  any: { name: 'Any', blurb: 'A different look every match' },
+} as const;
+export type ThemeChoice = keyof typeof THEMES;
+export type ThemeId = Exclude<ThemeChoice, 'any'>;
+/** On ice: how much grip is left for steering and for rolling to a stop. */
+export const ICE = { grip: 0.28, coast: 0.1 };
 /** Size of a random arena, in cells (1.25 m each). The hand-made maps have fixed sizes. */
 export const ARENA_SIZES = { small: { name: 'Small', n: 22 }, medium: { name: 'Medium', n: 28 }, large: { name: 'Large', n: 34 } } as const;
 export type ArenaSize = keyof typeof ARENA_SIZES;
@@ -158,7 +169,7 @@ export const WAVES = {
 export const BOSS = { hp: 450, every: 5, speed: 0.8, knock: 0.3, miniAt: 3, miniScale: 1.35, miniHp: 0.5 };
 export const MATCH = { fragLimit: 20, timeLimit: 240, bots: 7 };
 
-export type AbilityId = 'dash' | 'spikes' | 'bubble' | 'shockwave' | 'mine';
+export type AbilityId = 'dash' | 'spikes' | 'bubble' | 'shockwave' | 'mine' | 'nuke';
 export interface AbilityDef { id: AbilityId; name: string; blurb: string; cooldown: number; dur: number }
 export const ABILITIES: Record<AbilityId, AbilityDef> = {
   dash: { id: 'dash', name: 'Dash', blurb: 'Burst forward at triple speed. Ignores knockback while dashing.', cooldown: 3.5, dur: 0.28 },
@@ -166,9 +177,12 @@ export const ABILITIES: Record<AbilityId, AbilityDef> = {
   bubble: { id: 'bubble', name: 'Bubble', blurb: 'A shield that soaks 70% of damage and knockback for 2s.', cooldown: 10, dur: 2 },
   mine: { id: 'mine', name: 'Mine', blurb: 'Drop a proximity mine (3 at a time). Arms after a second.', cooldown: 5, dur: 0 },
   shockwave: { id: 'shockwave', name: 'Shockwave', blurb: 'Blast everyone within 4m away for 20 damage.', cooldown: 7, dur: 0.3 },
+  nuke: { id: 'nuke', name: 'Nuke Bot', blurb: 'Drop a beeping bot. 3s later it blows up everything within 6m, you included. Run!', cooldown: 12, dur: 0 },
 };
 export const SPIKES = { damage: 45, knock: 13 };
 export const MINE = { max: 3, arm: 1, trigger: 1.3, radius: 2.7, damage: 65, knock: 15, life: 45 };
+/** Nuke Bot (from Babo Violent 2): sits where you drop it, beeps faster and faster, then a huge blast. Walls block it. */
+export const NUKE = { fuse: 3, radius: 6, damage: 150, knock: 24 };
 export const WAVE = { radius: 4, damage: 20, knock: 17 };
 export const DASH = { speed: 19 };
 

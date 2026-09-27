@@ -5,6 +5,7 @@ import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { HALF } from './arena';
+import type { ThemeLook } from './themes';
 
 export type Quality = 'ultra' | 'high' | 'medium' | 'low';
 export interface QualityDef { label: string; msaa: number; ao: boolean; aoScale: number; bloom: boolean; shadows: boolean; pr: number; shadow: number; dynShadows: boolean }
@@ -26,6 +27,10 @@ export class Renderer {
   ao: GTAOPass;
   bloom: UnrealBloomPass;
   sun: THREE.DirectionalLight;
+  hemi: THREE.HemisphereLight;
+  fill: THREE.DirectionalLight;
+  private hemiBase = 1.25;
+  private flashT = 0;
   quality: Quality = 'high';
   flags: RenderFlags = { ao: true, bloom: true, shadows: true, res: 1 };
   gpuMs = -1;            // -1: timer queries unavailable
@@ -54,7 +59,7 @@ export class Renderer {
     s.fog = new THREE.Fog(0x9cc9ea, 38, 75);
 
     const hemi = new THREE.HemisphereLight(0xdff0ff, 0x8a7a6a, 1.25);
-    s.add(hemi);
+    s.add(hemi); this.hemi = hemi;
     this.sun = new THREE.DirectionalLight(0xfff0d8, 2.6);
     this.sun.position.set(-14, 26, 10);
     this.sun.castShadow = true;
@@ -63,7 +68,7 @@ export class Renderer {
     this.sun.shadow.mapSize.set(2048, 2048);
     this.sun.shadow.bias = -0.0005; this.sun.shadow.normalBias = 0.03; this.sun.shadow.radius = 4;
     s.add(this.sun); s.add(this.sun.target);
-    const fill = new THREE.DirectionalLight(0xb8d4ff, 0.55); fill.position.set(12, 10, -14); s.add(fill);
+    const fill = new THREE.DirectionalLight(0xb8d4ff, 0.55); fill.position.set(12, 10, -14); s.add(fill); this.fill = fill;
 
     this.composer = new EffectComposer(this.renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 }));
     this.composer.addPass(new RenderPass(s, this.camera));
@@ -150,9 +155,29 @@ export class Renderer {
     this.camera.lookAt(this.camTarget.x, 0, this.camTarget.z);
   }
 
+  /** Sky, fog and light for an arena theme. */
+  setTheme(L: ThemeLook) {
+    (this.scene.background as THREE.Color).setHex(L.sky);
+    const f = this.scene.fog as THREE.Fog; f.color.setHex(L.sky); f.near = L.fog[0]; f.far = L.fog[1];
+    this.hemi.color.setHex(L.hemi[0]); this.hemi.groundColor.setHex(L.hemi[1]); this.hemi.intensity = this.hemiBase = L.hemi[2];
+    this.sun.color.setHex(L.sun[0]); this.sun.intensity = L.sun[1];
+    this.fill.intensity = L.fill;
+  }
+  /** Lightning in the sky: two quick bright flickers. */
+  skyFlash() { this.flashT = 0.32; }
+  /** Current camera focus on the ground (weather follows it). */
+  get focus() { return this.camTarget; }
+  private stepFlash(dt: number) {
+    if (this.flashT <= 0) return;
+    this.flashT = Math.max(0, this.flashT - dt);
+    const t = 0.32 - this.flashT, k = t < 0.06 ? 1 : t < 0.12 ? 0.2 : t < 0.2 ? 0.8 : Math.max(0, 1 - (t - 0.2) / 0.12) * 0.6;
+    this.hemi.intensity = this.hemiBase * (1 + 2.2 * k);
+  }
+
   addShake(a: number) { this.shake = Math.min(1.2, this.shake + a); }
 
-  render() {
+  render(dt = 0) {
+    this.stepFlash(dt);
     const gl = this.renderer.getContext() as WebGL2RenderingContext;
     this.renderer.info.reset();
     let q: WebGLQuery | null = null;

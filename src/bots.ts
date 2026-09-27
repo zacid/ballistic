@@ -1,7 +1,7 @@
 import type { Game } from './game';
 import { CLIMB } from './arena';
 import type { Babo } from './babo';
-import { BALL, GRENADE, START_WEAPON, WEAPONS } from './config';
+import { BALL, GRENADE, NUKE, START_WEAPON, WEAPONS } from './config';
 
 interface Brain {
   target: number;          // babo id or -1
@@ -134,6 +134,11 @@ export function thinkBot(g: Game, b: Babo, dt: number, diff: { react: number; ai
       if (d < GRENADE.radius + 0.5 && n.fuse < 1.2) { mx += (b.x - n.x) / (d || 1) * 1.5; mz += (b.z - n.z) / (d || 1) * 1.5; }
     }
   }
+  // run from ticking Nuke Bots (their own included), whatever else we were doing
+  for (const n of g.nukes) {
+    const d = Math.hypot(n.x - b.x, n.z - b.z);
+    if (d < NUKE.radius + 1.2) { const k = 2.5 * (1 - d / (NUKE.radius + 1.2)) + 0.8; mx += (b.x - n.x) / (d || 1) * k; mz += (b.z - n.z) / (d || 1) * k; }
+  }
   // stuck detection
   const sp = Math.hypot(b.vx, b.vz);
   if (ml > 0.01 && sp < 0.8) br.stuckT += dt; else br.stuckT = Math.max(0, br.stuckT - dt);
@@ -189,6 +194,7 @@ export function thinkBot(g: Game, b: Babo, dt: number, diff: { react: number; ai
       case 'spikes': b.wantAbility = visible && dist < 2.4; if (b.wantAbility) { b.moveX = (t.x - b.x) / dist; b.moveZ = (t.z - b.z) / dist; } break;
       case 'bubble': b.wantAbility = recentlyHit && b.hp < 75; break;
       case 'shockwave': b.wantAbility = visible && dist < 3.4; break;
+      case 'nuke': b.wantAbility = (visible && dist < 4.5 && Math.random() < 0.5) || (recentlyHit && b.hp < 40 && dist < 6); break;
       case 'mine': b.wantAbility = (visible && dist > 2.5 && dist < 7 && Math.random() < 0.3) || (recentlyHit && b.hp < 50); break;
     }
   }

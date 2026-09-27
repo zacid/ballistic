@@ -66,6 +66,9 @@ button { font-family: inherit; color: inherit; }
 #feed div.fade { opacity: 0; }
 #feed b { font-family: var(--display); font-weight: 400; text-shadow: 0 1px 0 var(--ink); }
 #feed span { color: var(--muted); margin: 0 3px; }
+#feed .how { display: inline-flex; align-items: center; gap: 4px; vertical-align: middle; }
+#feed .how img { height: 20px; width: auto; transform: scaleX(-1); filter: drop-shadow(0 1px 0 var(--ink)); }
+#feed .how em { font-style: normal; font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--c); text-shadow: 0 1px 0 var(--ink); }
 @keyframes feedIn { from { transform: translateX(-20px); opacity: 0; } }
 
 #banner { position: absolute; left: 0; right: 0; top: 22%; text-align: center; font: 400 min(12vw, 92px) var(--display); color: var(--tangerine); opacity: 0; transform: scale(.6);
@@ -138,6 +141,12 @@ kbd { display: inline-block; min-width: 20px; padding: 0 5px; border-radius: 5px
 #cross::after { content: ""; position: absolute; left: -3px; top: -3px; width: 6px; height: 6px; border-radius: 50%; background: var(--cream); box-shadow: 0 0 0 2px var(--ink); }
 #cross.reloading::before { border-color: var(--ink-2); background: conic-gradient(var(--tangerine) calc(var(--r) * 360deg), transparent 0); }
 body.touch #cross, #hud.hidden ~ #cross { display: none; }
+#cross .hm { position: absolute; left: -24px; top: -24px; width: 48px; height: 48px; color: #fff; opacity: 0; filter: drop-shadow(0 0 1.5px var(--ink)) drop-shadow(0 0 1px var(--ink)); pointer-events: none; }
+#cross.hit .hm { animation: hm .22s ease-out; }
+#cross.kill .hm { color: #ff4a3d; animation: hmk .45s ease-out; }
+@keyframes hm { 0% { opacity: 1; transform: scale(.8); } 100% { opacity: 0; transform: scale(1.1); } }
+@keyframes hmk { 0% { opacity: 1; transform: scale(1.5) rotate(0deg); } 60% { opacity: 1; transform: scale(1.15); } 100% { opacity: 0; transform: scale(1.2); } }
+@media (prefers-reduced-motion: reduce) { #cross.hit .hm, #cross.kill .hm { animation-duration: .01s; } }
 
 #sticks { display: none; position: absolute; inset: 0; }
 body.touch #sticks { display: block; }
@@ -403,7 +412,7 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
   <button class="tbtn" id="btn-pick" hidden>SWAP</button>
   <button class="tbtn" id="btn-ab">ABILITY</button>
 </div>
-<div id="cross"></div>
+<div id="cross"><svg class="hm" viewBox="-24 -24 48 48" aria-hidden="true"><g stroke="currentColor" stroke-width="3.5" stroke-linecap="round"><path d="M-9-9L-17-17M9-9L17-17M-9 9L-17 17M9 9L17 17"/></g></svg></div>
 
 <button id="gear" title="Settings" aria-label="Settings">&#9881;</button>
 <div id="settings" class="pill">
@@ -430,7 +439,7 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
   <div id="tagline">Eight toy balls, one arena. First to 20 pops wins.</div>
   <div id="setup">
     <div><div class="label">SOLO MODE</div><div class="seg" id="solo-seg"></div></div>
-    <div><div class="label">ARENA</div><div class="seg" id="map-seg"></div><div class="seg sub" id="size-seg"></div></div>
+    <div><div class="label">ARENA</div><div class="seg" id="map-seg"></div><div class="seg sub" id="size-seg"></div><div class="seg sub" id="theme-seg"></div></div>
     <div><div class="label">BOTS</div><div class="seg" id="difficulty-seg"></div><div class="seg sub" id="count-seg"></div></div>
   </div>
   <div id="setup2">
@@ -473,7 +482,7 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
     </div>
     <div class="lobby-opts">
       <div><div class="kit-label">BOTS</div><div class="seg" id="lobby-difficulty-seg"></div><div class="seg sub" id="lobby-count-seg"></div></div>
-      <div><div class="kit-label">ARENA</div><div class="seg" id="lobby-map-seg"></div><div class="seg sub" id="lobby-size-seg"></div></div>
+      <div><div class="kit-label">ARENA</div><div class="seg" id="lobby-map-seg"></div><div class="seg sub" id="lobby-size-seg"></div><div class="seg sub" id="lobby-theme-seg"></div></div>
     </div>
     <div class="kit-label">YOUR ABILITY</div>
     <div class="kit" id="lobby-kit"></div>

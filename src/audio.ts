@@ -30,6 +30,24 @@ export class Audio {
     this.music.attach(ctx, this.out, this.noiseBuf);
   }
 
+  /** Background weather: a looping filtered-noise bed (rain hiss, or a low wind for snow). */
+  private amb: { src: AudioBufferSourceNode; g: GainNode } | null = null;
+  private ambKind = '';
+  ambience(kind: 'rain' | 'wind' | '') {
+    if (!this.ctx || kind === this.ambKind) return;
+    this.ambKind = kind;
+    const c = this.ctx, t = c.currentTime;
+    if (this.amb) { const a = this.amb; a.g.gain.setTargetAtTime(0, t, 0.3); a.src.stop(t + 1.5); this.amb = null; }
+    if (!kind) return;
+    const src = c.createBufferSource(); src.buffer = this.noiseBuf; src.loop = true;
+    const f = c.createBiquadFilter(), g = c.createGain();
+    if (kind === 'rain') { f.type = 'bandpass'; f.frequency.value = 2400; f.Q.value = 0.35; }
+    else { f.type = 'lowpass'; f.frequency.value = 420; f.Q.value = 0.8; const lfo = c.createOscillator(), lg = c.createGain(); lfo.frequency.value = 0.13; lg.gain.value = 220; lfo.connect(lg); lg.connect(f.frequency); lfo.start(); }
+    g.gain.value = 0; g.gain.setTargetAtTime(kind === 'rain' ? 0.16 : 0.22, t, 0.8);
+    src.connect(f); f.connect(g); g.connect(this.master!); src.start();
+    this.amb = { src, g };
+  }
+
   setMuted(m: boolean) { this.muted = m; if (this.out) this.out.gain.value = m ? 0 : 1; }
   setSfxVolume(v: number) { this.sfxVol = v; if (this.master) this.master.gain.value = 0.38 * v; }
 
@@ -116,6 +134,14 @@ export class Audio {
       case 'wave': this.noise('lowpass', 1400, 80, 0.45, 1 * v); this.tone('sine', 90, 40, 0.4, 0.8 * v); this.noise('bandpass', 400, 2400, 0.25, 0.3 * v, 0.8); break;
       case 'ready': this.tone('triangle', 880, 880, 0.08, 0.15); this.tone('triangle', 1320, 1320, 0.1, 0.12, 0.07); break;
       case 'click': this.tone('triangle', 900, 700, 0.05, 0.2); break;
+      case 'clink': { const f = 2600 + Math.random() * 1400; this.tone('triangle', f, f * 0.96, 0.05, 0.07 * v); this.tone('sine', f * 1.5, f * 1.45, 0.04, 0.04 * v, 0.045); break; }
+      case 'beep': this.tone('square', 1760, 1760, 0.06, 0.12 * v); break;
+      case 'nukedrop': this.tone('square', 440, 880, 0.12, 0.14 * v); this.tone('square', 880, 880, 0.08, 0.1 * v, 0.14); this.noise('bandpass', 900, 500, 0.08, 0.3 * v, 2); break;
+      case 'nuke':
+        this.noise('lowpass', 1800, 40, 1.6, 1.3 * v); this.tone('sine', 90, 22, 1.4, 1.1 * v);
+        this.noise('bandpass', 500, 90, 1.1, 0.5 * v, 0.5, 0.08); this.tone('sawtooth', 60, 30, 0.9, 0.25 * v);
+        break;
+      case 'thunder': this.noise('lowpass', 700, 60, 2.4, 0.9 * v); this.noise('lowpass', 300, 40, 1.6, 0.6 * v, 0.7, 0.35); this.tone('sine', 55, 30, 1.8, 0.35 * v); break;
     }
   }
 }

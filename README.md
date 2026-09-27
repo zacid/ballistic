@@ -4,11 +4,13 @@ Rolling toy balls with guns. A top-down arena shooter in the spirit of Babo Viol
 
 - **Solo:** free-for-all against 3, 5 or 7 bots (first to 20 pops), Gun Game, or Hold the Fort.
 - **With a friend:** 1v1 (first to 10), the two of you against 5 bots (first team to 30), Gun Game 1v1, or Hold the Fort together, joined with an invite link. Rematch goes straight back in without the lobby.
-- Eight guns and grenades. Everyone starts with a pistol; the shotgun, chaingun, bouncer, flamethrower and lightning gun lie around the arena, and the rockets and railgun are power weapons with limited ammo in the most contested spots. Stand on a gun and press E (or tap Swap on a phone) to swap to it; rolling over the gun you already hold tops up its ammo. Guns are dropped when their owner pops. Plus a Spacebar ability (dash, spikes, bubble, shockwave, mine).
+- Eight guns and grenades. Everyone starts with a pistol; the shotgun, chaingun, bouncer, flamethrower and lightning gun lie around the arena, and the rockets and railgun are power weapons with limited ammo in the most contested spots. Stand on a gun and press E (or tap Swap on a phone) to swap to it; rolling over the gun you already hold tops up its ammo. Guns are dropped when their owner pops. Plus a Spacebar ability (dash, spikes, bubble, shockwave, mine, Nuke Bot).
 - **Flamethrower:** short range, sets balls alight (afterburn) and leaves fire on the floor for a moment.
 - **Lightning gun:** locks onto the best target in a cone in front of you (no precise aim needed) and chains to up to two more balls nearby for 60% and 36% damage. Short range. (It replaced the gravity gun, which is retired but still in the code.)
 - **Practice range:** Practice Range on the menu: you and six target balls that never shoot back. Nothing can hurt you, 1-8 swap guns instantly, and the targets speed up as you go. Pop 20 as fast as you can; your best time is saved.
 - **Mine (ability):** Space drops a proximity mine behind you; three at a time, arms after a second.
+- **Nuke Bot (ability, from Babo Violent 2):** Space drops a little domed robot that beeps faster and faster for 3 s, then blows up everything within 6 m (up to 150 damage, you included; walls block it). A red ring on the floor shows the danger zone, bots run from it, and it has a 12 s cooldown.
+- **Themes:** **Toy room**, **Snow** (snowfall, snow-capped blocks, and frozen puddles that barely grip, so you slide), **City** (rain on wet tarmac with road markings, and the odd thunderclap), or **Any** for a different one each match. Works on every arena and mode, and the host's pick is used online.
 - **Arenas:** **Random** (a freshly generated layout every match, small, medium or large), or two hand-made maps with raised floors: **Fort** (a keep with ramps and battlements; Hold the Fort always plays here) and **Towers** (two raised corner towers).
 
 ### Gun Game
@@ -38,7 +40,7 @@ The soundtrack is generated live by a small step sequencer (`src/music.ts`): squ
 
 Shots skim up onto raised floors on their own (there's no vertical aim), so only walls and battlements give cover.
 
-**While playing:** a red arc at the screen edge points at whoever just hit you; when you're popped, the camera follows your killer until you respawn ("Popped by X with the Y"); gun pads near you are labelled, and power weapons show when they're back. The results screen shows your pops, accuracy, damage, best streak and top gun, with personal bests starred. Settings has separate sound-effect and music volume.
+**While playing:** the kill feed says how each pop happened, Babo Violent 2 style ("Zac [picture of a shotgun] SHOTGUN Kevin", or GRENADE, MINE, NUKE BOT...); the crosshair flashes a white X when you land a hit and a red one when you pop someone; guns throw out spent casings (red shells from the shotgun) that clink on the floor and lie there for a few seconds; a red arc at the screen edge points at whoever just hit you; when you're popped, the camera follows your killer until you respawn ("Popped by X with the Y"); gun pads near you are labelled, and power weapons show when they're back. The results screen shows your pops, accuracy, damage, best streak and top gun, with personal bests starred. Settings has separate sound-effect and music volume.
 
 Everything is generated in code: no image, model or audio files. Sounds are synthesised with Web Audio.
 
@@ -146,7 +148,9 @@ The relay uses one SQLite-backed Durable Object per room with the WebSocket Hibe
 | `src/bots.ts` | Bot AI: targeting, pathing, strafing, grenades, abilities |
 | `src/arena.ts` | Random and hand-made arenas, raised floors and ramps, collision, A*, floor paint |
 | `src/render.ts` | Renderer, shadows, GTAO, bloom, quality presets, GPU timing |
-| `src/fx.ts` | Particles, smoke, flashes, shockwave rings |
+| `src/fx.ts` | Particles, smoke, flashes, shockwave rings, casings, the nuke blast |
+| `src/themes.ts` | Colours, light and weather for each arena theme |
+| `src/weather.ts` | Rain (with splashes) and snowfall that follow the camera |
 | `src/audio.ts` | Synthesised sound effects |
 | `src/music.ts` | Procedural soundtrack sequencer |
 | `src/hud.ts` | Menus, lobby, HUD, performance panel |
@@ -154,7 +158,7 @@ The relay uses one SQLite-backed Durable Object per room with the WebSocket Hibe
 
 ## Tests
 
-`tests/solo.mjs` fast-forwards bot-only matches (Gun Game on Fort and Towers, free-for-all) and checks for errors. `tests/waves.mjs` and `tests/waves-duo.mjs` cover Hold the Fort solo and online; `tests/boss-stuck.mjs` measures how long bosses spend wedged (before vs after the wide-ball pathing); `tests/qol.mjs` covers the hit arcs, killcam, pad labels, results stats, volume sliders, shadow modes and memory; `tests/newguns.mjs` and `tests/weapons-duo.mjs` cover the flamethrower, gravity gun and mines offline and online; `tests/guns.mjs` checks gun pickups, power-weapon ammo and the lingering railgun beam; `tests/adaptive-ffa.mjs` and `tests/adaptive-coop.mjs` check the Free-for-all and online versions; `tests/director.mjs` checks the difficulty climbs for a strong player and falls for a weak one. `tests/gg.mjs` plays online Gun Game 1v1 through the local servers, checks the ladder syncs, and tests the rematch.
+`tests/solo.mjs` fast-forwards bot-only matches (Gun Game on Fort and Towers, free-for-all) and checks for errors. `tests/waves.mjs` and `tests/waves-duo.mjs` cover Hold the Fort solo and online; `tests/boss-stuck.mjs` measures how long bosses spend wedged (before vs after the wide-ball pathing); `tests/qol.mjs` covers the hit arcs, killcam, pad labels, results stats, volume sliders, shadow modes and memory; `tests/newguns.mjs` and `tests/weapons-duo.mjs` cover the flamethrower, gravity gun and mines offline and online; `tests/guns.mjs` checks gun pickups, power-weapon ammo and the lingering railgun beam; `tests/adaptive-ffa.mjs` and `tests/adaptive-coop.mjs` check the Free-for-all and online versions; `tests/director.mjs` checks the difficulty climbs for a strong player and falls for a weak one. `tests/bv2.mjs` covers the kill feed, hit markers, casings, the Nuke Bot (damage, bots fleeing, the guest's copy), the three themes, ice sliding and the theme picker; `tests/bv2-duo.mjs` checks the theme and a nuke kill sync between two browsers. `tests/gg.mjs` plays online Gun Game 1v1 through the local servers, checks the ladder syncs, and tests the rematch.
 
 `tests/p2p.mjs` runs two headless browsers against a local PeerJS server, creates an invite, joins it, plays a duel and checks that kills and disconnects sync:
 

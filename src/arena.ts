@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import type { ThemeId } from './config';
+import { LOOKS } from './themes';
 
 export const N = 32;          // cells per side
 export const CELL = 1.25;     // metres per cell
@@ -17,7 +19,7 @@ export function rng(seed: number) {
   };
 }
 
-const TOY = [0xff5a4e, 0x2f8cff, 0xffc83a, 0x34c77b, 0xf6efe2, 0x9b6bff];
+const TOY = LOOKS.toy.blocks;
 
 export interface Spot { x: number; z: number }
 export type MapId = 'random' | 'fort' | 'towers';
@@ -34,6 +36,8 @@ export class Arena {
   fl: Uint8Array;      // floor level in cubes (1 = raised platform)
   ramp: Int8Array;     // -1, or the up-slope direction
   rampBase: Float32Array; // ramp height at its low edge, in cubes
+  ice: Uint8Array;     // snow theme: slippery floor cells
+  hasIce = false;
   spawns: Spot[] = [];
   homeSpawns: Spot[] = [];   // hand-made maps: where the humans start in co-op
   pickupKinds: ('health' | 'nades' | 'mega')[] = [];
@@ -54,16 +58,18 @@ export class Arena {
   n: number;
   half: number;
 
-  constructor(public seed: number, size = N, public map: MapId = 'random') {
+  constructor(public seed: number, size = N, public map: MapId = 'random', public theme: ThemeId = 'toy') {
     if (map === 'fort') size = 30;
     if (map === 'towers') size = 22;
     this.n = size; this.half = (size * CELL) / 2;
     this.h = new Uint8Array(size * size); this.col = new Int8Array(size * size).fill(-1);
     this.fl = new Uint8Array(size * size); this.ramp = new Int8Array(size * size).fill(-1); this.rampBase = new Float32Array(size * size);
+    this.ice = new Uint8Array(size * size);
     this.floorSize = size * CELL + FLOOR_MARGIN * 2;
     if (map === 'fort') this.buildFort();
     else if (map === 'towers') this.buildTowers();
     else this.generate();
+    if (theme === 'snow') this.freeze();
     this.build();
   }
 
@@ -181,6 +187,36 @@ export class Arena {
     this.pickups.push({ x: 0, z: 0 });
   }
 
+  /**
+   * Snow: a few frozen puddles on open ground, mirrored like the rest of the layout so neither side is
+   * favoured. Built from the seed, so both players get the same ice.
+   */
+  private freeze() {
+    const r = rng(this.seed * 13 + 5), n = this.n, Q = Math.ceil(n / 2);
+    const open = (i: number, j: number) => i > 0 && j > 0 && i < n - 1 && j < n - 1 && !this.h[this.idx(i, j)] && !this.fl[this.idx(i, j)] && this.ramp[this.idx(i, j)] < 0;
+    const patches = Math.max(2, Math.round((n * n) / 260));
+    for (let p = 0; p < patches; p++) {
+      let ci = 2 + Math.floor(r() * (Q - 2)), cj = 2 + Math.floor(r() * (Q - 2));
+      if (!open(ci, cj)) continue;
+      const size = 4 + Math.floor(r() * 7);
+      for (let k = 0; k < size * 3 && size > 0; k++) {
+        if (open(ci, cj)) this.mirror4(ci, cj, (a, b) => { if (open(a, b)) this.ice[this.idx(a, b)] = 1; });
+        const d = Math.floor(r() * 4);
+        const ni = ci + (d === 0 ? 1 : d === 1 ? -1 : 0), nj = cj + (d === 2 ? 1 : d === 3 ? -1 : 0);
+        if (open(ni, nj) && ni < Q && nj < Q) { ci = ni; cj = nj; }
+      }
+    }
+    // keep pickups and spawn points grippy
+    for (const s of [...this.pickups, ...this.spawns.filter((_, i) => i % 3 === 0)]) { const i = this.cellOf(s.x), j = this.cellOf(s.z); if (i >= 0 && j >= 0 && i < n && j < n) this.ice[this.idx(i, j)] = 0; }
+    this.hasIce = this.ice.some(v => v === 1);
+  }
+  /** Is the floor under this point ice? */
+  iceAt(x: number, z: number) {
+    if (!this.hasIce) return false;
+    const i = this.cellOf(x), j = this.cellOf(z);
+    return i >= 0 && j >= 0 && i < this.n && j < this.n && this.ice[this.idx(i, j)] === 1;
+  }
+
   // ---------- hand-made maps ----------
   private wall(i: number, j: number, h: number, c: number) { const k = this.idx(i, j); this.h[k] = h; this.col[k] = c; }
   private plat(i: number, j: number) { this.fl[this.idx(i, j)] = 1; }
@@ -295,15 +331,19 @@ export class Arena {
     const proxy = new THREE.InstancedMesh(new THREE.BoxGeometry(CELL * 0.98, CELL * 0.98, CELL * 0.98), new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false }), count);
     proxy.castShadow = true; proxy.layers.enable(1);
     const m = new THREE.Matrix4(); const c = new THREE.Color(); const r = rng(this.seed + 11);
+    const L = LOOKS[this.theme], white = new THREE.Color(0xffffff);
     let n = 0;
     for (let j = 0; j < this.n; j++) for (let i = 0; i < this.n; i++) {
       const k = this.idx(i, j), hh = this.h[k], f = this.fl[k];
       for (let y = 0; y < f + hh; y++) {
         m.makeTranslation(this.center(i), CELL * (y + 0.49), this.center(j));
         inst.setMatrixAt(n, m); proxy.setMatrixAt(n, m);
-        // raised floors are sandstone with a checker; walls keep their toy colours
-        if (y < f) { c.setHex(((i + j) & 1) ? 0xe6d3b3 : 0xdcc7a4); c.offsetHSL(0, 0, (r() - 0.5) * 0.03); }
-        else { c.setHex(TOY[Math.max(0, this.col[k])]); c.offsetHSL(0, 0, (r() - 0.5) * 0.06 + (y % 2 ? 0.025 : 0)); }
+        // raised floors are a checker; walls take the theme's colours (snow tops them with a white cap)
+        if (y < f) { c.setHex(L.plat[(i + j) & 1]); c.offsetHSL(0, 0, (r() - 0.5) * 0.03); }
+        else {
+          c.setHex(L.blocks[Math.max(0, this.col[k])]); c.offsetHSL(0, 0, (r() - 0.5) * 0.06 + (y % 2 ? 0.025 : 0));
+          if (L.cap && y === f + hh - 1) c.lerp(white, L.cap);
+        }
         inst.setColorAt(n, c); n++;
       }
     }
@@ -326,7 +366,7 @@ export class Arena {
       wedges.push(g);
     }
     if (wedges.length) {
-      const rm = new THREE.Mesh(mergeGeometries(wedges)!, new THREE.MeshStandardMaterial({ color: 0xd2bd98, roughness: 0.7 }));
+      const rm = new THREE.Mesh(mergeGeometries(wedges)!, new THREE.MeshStandardMaterial({ color: L.ramp, roughness: 0.7 }));
       rm.castShadow = true; rm.receiveShadow = true; rm.layers.enable(1); this.group.add(rm);
     }
 
@@ -335,22 +375,41 @@ export class Arena {
     this.floorBase.width = this.floorBase.height = this.floorPx;
     const b = this.floorBase.getContext('2d')!;
     const px = this.floorPx / this.floorSize;
-    b.fillStyle = '#9fbbd2'; b.fillRect(0, 0, this.floorPx, this.floorPx);
+    const F = L.floor;
+    b.fillStyle = F.bg; b.fillRect(0, 0, this.floorPx, this.floorPx);
     const o = FLOOR_MARGIN * px;
     for (let j = 0; j < this.n; j++) for (let i = 0; i < this.n; i++) {
       const alt = ((i >> 1) + (j >> 1)) % 2 === 0;
-      b.fillStyle = alt ? '#e9eff7' : '#d2deec';
+      b.fillStyle = alt ? F.a : F.b;
       b.fillRect(o + i * CELL * px, o + j * CELL * px, CELL * px + 1, CELL * px + 1);
     }
+    if (this.theme === 'city') {
+      // tarmac grit and a few oil stains
+      const gr = rng(this.seed + 21);
+      for (let k = 0; k < 5000; k++) { b.fillStyle = gr() < 0.5 ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.12)'; b.fillRect(o + gr() * this.n * CELL * px, o + gr() * this.n * CELL * px, 2, 2); }
+      for (let k = 0; k < 14; k++) { const x = o + gr() * this.n * CELL * px, y = o + gr() * this.n * CELL * px, rr = (0.4 + gr() * 0.9) * px; const g = b.createRadialGradient(x, y, 0, x, y, rr); g.addColorStop(0, 'rgba(10,12,18,0.35)'); g.addColorStop(1, 'rgba(10,12,18,0)'); b.fillStyle = g; b.fillRect(x - rr, y - rr, rr * 2, rr * 2); }
+    }
+    if (this.theme === 'snow') {
+      // soft drifts
+      const gr = rng(this.seed + 21);
+      for (let k = 0; k < 40; k++) { const x = o + gr() * this.n * CELL * px, y = o + gr() * this.n * CELL * px, rr = (1 + gr() * 2.5) * px; const g = b.createRadialGradient(x, y, 0, x, y, rr); g.addColorStop(0, 'rgba(255,255,255,0.55)'); g.addColorStop(1, 'rgba(255,255,255,0)'); b.fillStyle = g; b.fillRect(x - rr, y - rr, rr * 2, rr * 2); }
+    }
     // soft grout lines
-    b.strokeStyle = 'rgba(80,110,150,0.10)'; b.lineWidth = 2;
+    b.strokeStyle = F.grout; b.lineWidth = 2;
     for (let k = 0; k <= this.n; k += 2) {
       b.beginPath(); b.moveTo(o + k * CELL * px, o); b.lineTo(o + k * CELL * px, o + this.n * CELL * px); b.stroke();
       b.beginPath(); b.moveTo(o, o + k * CELL * px); b.lineTo(o + this.n * CELL * px, o + k * CELL * px); b.stroke();
     }
     // centre ring
-    b.strokeStyle = 'rgba(255,120,90,0.35)'; b.lineWidth = 10;
+    b.strokeStyle = F.ring; b.lineWidth = 10;
     b.beginPath(); b.arc(this.floorPx / 2, this.floorPx / 2, 3.2 * px, 0, Math.PI * 2); b.stroke();
+    if (F.lanes) {
+      // dashed road markings along the two centre lines
+      b.strokeStyle = F.lanes; b.lineWidth = 7; b.setLineDash([1.1 * px, 0.9 * px]);
+      const mid = this.floorPx / 2, e0 = o + CELL * px, e1 = o + (this.n - 1) * CELL * px;
+      for (const [x0, y0, x1, y1] of [[e0, mid, mid - 3.4 * px, mid], [mid + 3.4 * px, mid, e1, mid], [mid, e0, mid, mid - 3.4 * px], [mid, mid + 3.4 * px, mid, e1]]) { b.beginPath(); b.moveTo(x0, y0); b.lineTo(x1, y1); b.stroke(); }
+      b.setLineDash([]);
+    }
 
     this.floorCanvas = document.createElement('canvas');
     this.floorCanvas.width = this.floorCanvas.height = this.floorPx;
@@ -363,13 +422,43 @@ export class Arena {
     this.floorTex.flipY = false; this.floorTex.repeat.set(1, -1); this.floorTex.offset.set(0, 1);
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(this.floorSize, this.floorSize),
-      new THREE.MeshStandardMaterial({ map: this.floorTex, roughness: 0.85 }),
+      new THREE.MeshStandardMaterial({ map: this.floorTex, roughness: F.rough }),
     );
     floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true;
     this.group.add(floor);
 
+    // Ice: glossy, see-through sheets over the frozen cells (paint splats show through, frozen in)
+    if (this.hasIce) {
+      const sheets: THREE.BufferGeometry[] = [];
+      for (let j = 0; j < this.n; j++) for (let i = 0; i < this.n; i++) {
+        if (!this.ice[this.idx(i, j)]) continue;
+        const g = new THREE.PlaneGeometry(CELL * 1.001, CELL * 1.001); g.rotateX(-Math.PI / 2); g.translate(this.center(i), 0.012, this.center(j)); sheets.push(g);
+      }
+      const ice = new THREE.Mesh(mergeGeometries(sheets)!, new THREE.MeshStandardMaterial({ color: 0xbfe6ff, roughness: 0.06, metalness: 0.15, transparent: true, opacity: 0.62, depthWrite: false }));
+      ice.receiveShadow = true; ice.renderOrder = 1; this.group.add(ice);
+      // a frosty rim and a few cracks painted on the floor underneath
+      b.save();
+      for (let j = 0; j < this.n; j++) for (let i = 0; i < this.n; i++) {
+        if (!this.ice[this.idx(i, j)]) continue;
+        const x = o + i * CELL * px, y = o + j * CELL * px, w = CELL * px;
+        b.fillStyle = '#9fd0f2'; b.fillRect(x, y, w + 1, w + 1);
+        const nb = (a: number, c: number) => a >= 0 && c >= 0 && a < this.n && c < this.n && this.ice[this.idx(a, c)] === 1;
+        b.fillStyle = 'rgba(255,255,255,0.8)';
+        if (!nb(i - 1, j)) b.fillRect(x, y, 5, w); if (!nb(i + 1, j)) b.fillRect(x + w - 5, y, 5, w);
+        if (!nb(i, j - 1)) b.fillRect(x, y, w, 5); if (!nb(i, j + 1)) b.fillRect(x, y + w - 5, w, 5);
+      }
+      const cr = rng(this.seed + 31); b.strokeStyle = 'rgba(255,255,255,0.7)'; b.lineWidth = 2;
+      for (let j = 0; j < this.n; j++) for (let i = 0; i < this.n; i++) {
+        if (!this.ice[this.idx(i, j)] || cr() < 0.5) continue;
+        let x = o + (i + cr()) * CELL * px, y = o + (j + cr()) * CELL * px; b.beginPath(); b.moveTo(x, y);
+        for (let k = 0; k < 3; k++) { x += (cr() - 0.5) * 40; y += (cr() - 0.5) * 40; b.lineTo(x, y); } b.stroke();
+      }
+      b.restore();
+      this.floorCtx.drawImage(this.floorBase, 0, 0);
+    }
+
     // Far ground so the edge of the floor never shows.
-    const far = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshStandardMaterial({ color: 0x8fb1c9, roughness: 1 }));
+    const far = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshStandardMaterial({ color: L.far, roughness: 1 }));
     far.rotation.x = -Math.PI / 2; far.position.y = -0.02; far.receiveShadow = true;
     this.group.add(far);
   }

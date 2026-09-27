@@ -14,13 +14,13 @@
 import type { ModeId } from './config';
 
 export type NetEvent =
-  | { k: 'hit'; v: number; a: number; d: number; x: number; z: number; y: number ; f?: number }
-  | { k: 'die'; v: number; by: number }
+  | { k: 'hit'; v: number; a: number; d: number; x: number; z: number; y: number ; f?: number; w?: string }
+  | { k: 'die'; v: number; by: number; w?: string }
   | { k: 'nade'; o: number; x: number; y: number; z: number; vx: number; vy: number; vz: number }
   | { k: 'boom'; o: number; x: number; z: number; r: number; y?: number; m?: number }
   | { k: 'pick'; i: number; d?: string };
 
-export interface StartOffer { e: number; mode: ModeId; seed: number; guest: string; roster: RosterEntry[]; diff: string; map?: string; n?: number }
+export interface StartOffer { e: number; mode: ModeId; seed: number; guest: string; roster: RosterEntry[]; diff: string; map?: string; n?: number; th?: string }
 export interface RosterEntry { id: number; name: string; color: number; team: number; human: boolean; peer?: string; sk?: number }
 export interface HostState { e: number; st: 'c' | 'p' | 'o'; t: number; k: number[]; d: number[]; g?: number[]; w?: number[]; f?: number[] }
 
