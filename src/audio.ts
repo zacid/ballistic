@@ -30,22 +30,68 @@ export class Audio {
     this.music.attach(ctx, this.out, this.noiseBuf);
   }
 
-  /** Background weather: a looping filtered-noise bed (rain hiss, or a low wind for snow). */
-  private amb: { src: AudioBufferSourceNode; g: GainNode } | null = null;
+  /**
+   * Background weather. Rain is a soft, low patter bed plus individual drops scheduled at random
+   * (a few a second, drifting with slow gusts): pits on tarmac and the odd plink into a puddle, each
+   * panned somewhere different. Snow is a low wind that swells and fades.
+   */
+  private amb: { stop: (t: number) => void } | null = null;
   private ambKind = '';
   ambience(kind: 'rain' | 'wind' | '') {
     if (!this.ctx || kind === this.ambKind) return;
     this.ambKind = kind;
     const c = this.ctx, t = c.currentTime;
-    if (this.amb) { const a = this.amb; a.g.gain.setTargetAtTime(0, t, 0.3); a.src.stop(t + 1.5); this.amb = null; }
+    if (this.amb) { this.amb.stop(t); this.amb = null; }
     if (!kind) return;
+    const g = c.createGain(); g.gain.value = 0; g.connect(this.master!);
     const src = c.createBufferSource(); src.buffer = this.noiseBuf; src.loop = true;
-    const f = c.createBiquadFilter(), g = c.createGain();
-    if (kind === 'rain') { f.type = 'bandpass'; f.frequency.value = 2400; f.Q.value = 0.35; }
-    else { f.type = 'lowpass'; f.frequency.value = 420; f.Q.value = 0.8; const lfo = c.createOscillator(), lg = c.createGain(); lfo.frequency.value = 0.13; lg.gain.value = 220; lfo.connect(lg); lg.connect(f.frequency); lfo.start(); }
-    g.gain.value = 0; g.gain.setTargetAtTime(kind === 'rain' ? 0.16 : 0.22, t, 0.8);
-    src.connect(f); f.connect(g); g.connect(this.master!); src.start();
-    this.amb = { src, g };
+    let timer = 0;
+    if (kind === 'rain') {
+      // distant patter: dull and quiet, gently swelling
+      const lp = c.createBiquadFilter(), hp = c.createBiquadFilter(), bed = c.createGain();
+      lp.type = 'lowpass'; lp.frequency.value = 1100; hp.type = 'highpass'; hp.frequency.value = 250;
+      bed.gain.value = 0.03;
+      const lfo = c.createOscillator(), lg = c.createGain(); lfo.frequency.value = 0.07; lg.gain.value = 0.012; lfo.connect(lg); lg.connect(bed.gain); lfo.start();
+      src.connect(lp); lp.connect(hp); hp.connect(bed); bed.connect(g);
+      // individual drops, scheduled a little ahead on the audio clock
+      let next = t + 0.2;
+      timer = window.setInterval(() => {
+        const now = c.currentTime;
+        if (next < now) next = now + 0.02;
+        while (next < now + 0.25) {
+          this.drop(next, g);
+          const rate = 6 + 3 * Math.sin(next * 0.13) + 2 * Math.sin(next * 0.041);   // drops per second, drifting
+          next += -Math.log(1 - Math.random()) / rate;
+        }
+      }, 80);
+      g.gain.setTargetAtTime(1, t, 1.2);
+    } else {
+      const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 420; f.Q.value = 0.8;
+      const lfo = c.createOscillator(), lg = c.createGain(); lfo.frequency.value = 0.13; lg.gain.value = 220; lfo.connect(lg); lg.connect(f.frequency); lfo.start();
+      src.connect(f); f.connect(g);
+      g.gain.setTargetAtTime(0.22, t, 0.8);
+    }
+    src.start();
+    this.amb = { stop: (at) => { clearInterval(timer); g.gain.setTargetAtTime(0, at, 0.3); src.stop(at + 1.5); } };
+  }
+
+  /** One raindrop: a tiny filtered tick, or now and then a rising plink into a puddle. */
+  private drop(t: number, out: AudioNode) {
+    const c = this.ctx!, pan = c.createStereoPanner(); pan.pan.value = (Math.random() * 2 - 1) * 0.8; pan.connect(out);
+    const near = Math.random() < 0.15;
+    if (Math.random() < 0.22) {
+      const o = c.createOscillator(), og = c.createGain(), f = 900 + Math.random() * 900;
+      o.type = 'sine'; o.frequency.setValueAtTime(f, t); o.frequency.exponentialRampToValueAtTime(f * 1.5, t + 0.035);
+      const v = (near ? 0.07 : 0.035) * (0.6 + Math.random() * 0.4);
+      og.gain.setValueAtTime(0.0001, t); og.gain.linearRampToValueAtTime(v, t + 0.004); og.gain.exponentialRampToValueAtTime(0.0003, t + 0.06);
+      o.connect(og); og.connect(pan); o.start(t); o.stop(t + 0.07);
+      return;
+    }
+    const s = c.createBufferSource(); s.buffer = this.noiseBuf;
+    const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = near ? 1400 + Math.random() * 1200 : 2800 + Math.random() * 4000; bp.Q.value = 2 + Math.random() * 3;
+    const dg = c.createGain(), dur = 0.01 + Math.random() * (near ? 0.03 : 0.015), v = (near ? 0.5 : 0.3) * (0.5 + Math.random() * 0.5);
+    dg.gain.setValueAtTime(v, t); dg.gain.exponentialRampToValueAtTime(0.0005, t + dur);
+    s.connect(bp); bp.connect(dg); dg.connect(pan); s.start(t, Math.random() * 0.9); s.stop(t + dur + 0.01);
   }
 
   setMuted(m: boolean) { this.muted = m; if (this.out) this.out.gain.value = m ? 0 : 1; }
@@ -134,6 +180,8 @@ export class Audio {
       case 'wave': this.noise('lowpass', 1400, 80, 0.45, 1 * v); this.tone('sine', 90, 40, 0.4, 0.8 * v); this.noise('bandpass', 400, 2400, 0.25, 0.3 * v, 0.8); break;
       case 'ready': this.tone('triangle', 880, 880, 0.08, 0.15); this.tone('triangle', 1320, 1320, 0.1, 0.12, 0.07); break;
       case 'click': this.tone('triangle', 900, 700, 0.05, 0.2); break;
+      case 'mpop': this.tone('sine', 520 + Math.random() * 200, 140, 0.12, 0.35 * v); this.noise('lowpass', 2200, 200, 0.1, 0.35 * v); break;
+      case 'coin': { const f = 1400 + Math.random() * 300; this.tone('square', f, f, 0.04, 0.06 * v); this.tone('square', f * 1.5, f * 1.5, 0.06, 0.05 * v, 0.04); break; }
       case 'clink': { const f = 2600 + Math.random() * 1400; this.tone('triangle', f, f * 0.96, 0.05, 0.07 * v); this.tone('sine', f * 1.5, f * 1.45, 0.04, 0.04 * v, 0.045); break; }
       case 'beep': this.tone('square', 1760, 1760, 0.06, 0.12 * v); break;
       case 'nukedrop': this.tone('square', 440, 880, 0.12, 0.14 * v); this.tone('square', 880, 880, 0.08, 0.1 * v, 0.14); this.noise('bandpass', 900, 500, 0.08, 0.3 * v, 2); break;

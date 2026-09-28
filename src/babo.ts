@@ -196,6 +196,7 @@ export interface Babo {
   gravT: number;                     // how long the gravity gun has been held
   reserve: number;     // spare rounds for power weapons; -1 = unlimited reloads
   rad: number;         // collision radius (the wave boss is bigger)
+  spd: number;         // speed multiplier (Rollout stats)
   maxHp: number;
   boss: boolean;     // how far away the player/bot is aiming (grenade throws)
   semiLock: boolean;   // semi-auto: wait for the trigger to be released
@@ -240,7 +241,7 @@ export function makeBabo(id: number, name: string, color: number, weapon: Weapon
     weapon, ammo: WEAPONS[weapon].clip, reloadT: 0, cool: 0, nades: GRENADE.start, nadeCool: 0,
     ability, abCool: 0, abT: 0, abCount: 0, spikeHits: new Set(),
     aimX: 1, aimZ: 0, moveX: 0, moveZ: 0, fire: false, wantAbility: false,
-    kills: 0, deaths: 0, tier: 0, tierKills: 0, won: false, gy: 0, aimDist: 6, burnT: 0, burnBy: -1, flungT: 0, flungBy: -1, gravT: 0, reserve: -1, rad: BALL.radius, maxHp: BALL.hp, boss: false, semiLock: false, spikeCd: new Map(), streak: 0, lastHitBy: -1, lastHitT: 0, lastSrc: '', hurtT: 0, spawnShield: 0,
+    kills: 0, deaths: 0, tier: 0, tierKills: 0, won: false, gy: 0, aimDist: 6, burnT: 0, burnBy: -1, flungT: 0, flungBy: -1, gravT: 0, reserve: -1, rad: BALL.radius, spd: 1, maxHp: BALL.hp, boss: false, semiLock: false, spikeCd: new Map(), streak: 0, lastHitBy: -1, lastHitT: 0, lastSrc: '', hurtT: 0, spawnShield: 0,
     root, ball, gun, ring, blob, mat, spikes: sp, bubble, recoilZ: 0,
     net: [], netFire: false, netReload: false,
   };

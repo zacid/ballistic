@@ -5,6 +5,8 @@ import { ONLINE_URL, ABILITIES, AbilityId, BALL, COLORS, DIFFICULTY, Difficulty,
 import { QUALITY, Quality } from './render';
 import { buildGun } from './babo';
 import type { RenderFlags } from './render';
+import { RunUi } from './runui';
+import { BALLS, RUN } from './rundata';
 
 const $ = (id: string) => document.getElementById(id)!;
 const hex = (n: number) => '#' + n.toString(16).padStart(6, '0');
@@ -31,9 +33,11 @@ export class Hud {
   private deathKiller = '';
   private abWasReady = true;
   private pingT = 0;
+  runUi!: RunUi;
   private lobbyT = 0;
 
   constructor(private g: Game) {
+    this.runUi = new RunUi(g);
     this.buildMenu();
     $('play').addEventListener('click', () => { this.g.audio.unlock(); this.g.startSolo(); });
     $('play-online').addEventListener('click', () => { this.g.audio.play('click'); this.g.openLobby(); });
@@ -118,14 +122,23 @@ export class Hud {
     });
     this.segs(() => this.buildMenu());
     const ms = $('solo-seg'); ms.innerHTML = '';
-    for (const m of ['solo', 'gungame', 'waves'] as const) {
+    for (const m of ['solo', 'gungame', 'waves', 'run'] as const) {
       const b = document.createElement('button'); b.textContent = MODES[m].name;
       b.className = m === this.g.saved.soloMode ? 'on' : '';
       b.addEventListener('click', () => { this.g.audio.unlock(); this.g.audio.play('click'); this.g.saved.soloMode = m; this.g.save(); this.buildMenu(); });
       ms.appendChild(b);
     }
     const sm = this.g.saved.soloMode, gg = sm === 'gungame';
-    $('tagline').textContent = gg ? 'Gun Game: every pop moves you up a weapon. Pop someone with spikes to win.'
+    const bs = $('ball-seg'); bs.innerHTML = ''; bs.hidden = sm !== 'run';
+    for (const bt of BALLS) {
+      const b = document.createElement('button'); b.textContent = bt.name; b.title = bt.blurb;
+      b.className = bt.id === this.g.saved.ball ? 'on' : '';
+      b.addEventListener('click', () => { this.g.audio.unlock(); this.g.audio.play('click'); this.g.saved.ball = bt.id; this.g.save(); this.buildMenu(); });
+      bs.appendChild(b);
+    }
+    const ball = BALLS.find(b => b.id === this.g.saved.ball) ?? BALLS[0];
+    $('tagline').textContent = sm === 'run' ? `Rollout: survive ${RUN.waves} waves of swarms. ${ball.name}: ${ball.blurb}${this.g.saved.runBest ? ` Best: wave ${this.g.saved.runBest}${this.g.saved.runWins ? `, ${this.g.saved.runWins} win${this.g.saved.runWins > 1 ? 's' : ''}` : ''}.` : ''}`
+      : gg ? 'Gun Game: every pop moves you up a weapon. Pop someone with spikes to win.'
       : sm === 'waves' ? `Hold the Fort: survive the waves from the keep.${this.g.saved.bestWave ? ` Best: wave ${this.g.saved.bestWave}.` : ''}`
       : `${['Four', 'Six', 'Eight'][[3, 5, 7].indexOf(this.g.saved.botCount)] ?? 'Eight'} toy balls, eight guns, one arena. First to 20 pops wins.`;
     $('cards-label').textContent = gg ? 'Gun Game hands these out in order, rockets first.' : 'Start with a pistol. Stand on a gun in the arena and press E to grab it.';
@@ -171,7 +184,7 @@ export class Hud {
       // how many bots: solo Free-for-all / Gun Game in the menu, 2 vs bots in the lobby
       const key = pre ? 'coopBots' : 'botCount';
       const cs = $(pre + 'count-seg'); cs.innerHTML = '';
-      cs.hidden = pre === '' && this.g.saved.soloMode === 'waves';
+      cs.hidden = pre === '' && (this.g.saved.soloMode === 'waves' || this.g.saved.soloMode === 'run');
       for (const n of [3, 5, 7]) {
         const b = document.createElement('button'); b.textContent = `${n} bots`;
         b.title = pre ? `${n} bots in 2 vs bots` : `${n} bots in Free-for-all and Gun Game`;
@@ -183,6 +196,7 @@ export class Hud {
       const locked = pre === '' && this.g.saved.soloMode === 'waves';
       const cur: MapChoice = locked ? 'fort' : this.g.saved.map;
       const as = $(pre + 'map-seg'); as.innerHTML = '';
+      as.hidden = pre === '' && this.g.saved.soloMode === 'run';   // Rollout has its own open arena
       for (const m of Object.keys(MAPS) as MapChoice[]) {
         const b = document.createElement('button'); b.textContent = MAPS[m].name; b.title = locked ? 'Hold the Fort always plays on the Fort' : MAPS[m].blurb;
         b.className = m === cur ? 'on' : ''; b.disabled = locked;
@@ -197,7 +211,7 @@ export class Hud {
         ts.appendChild(b);
       }
       const ss = $(pre + 'size-seg'); ss.innerHTML = '';
-      ss.hidden = cur !== 'random';
+      ss.hidden = cur !== 'random' || (pre === '' && this.g.saved.soloMode === 'run');
       for (const z of Object.keys(ARENA_SIZES) as ArenaSize[]) {
         const b = document.createElement('button'); b.textContent = ARENA_SIZES[z].name;
         b.className = z === this.g.saved.arenaSize ? 'on' : '';
@@ -345,7 +359,12 @@ export class Hud {
   showResult(ranked: Babo[], place: number, won: boolean) {
     const g = this.g;
     let title: string;
-    if (g.mode.practice) {
+    if (g.run) {
+      const r = g.run;
+      title = r.won ? 'YOU WIN!' : `SWARMED ON WAVE ${r.n}`;
+      $('result-sub').textContent = `${r.ball.name} · level ${r.lvl} · ${r.earned} coins · ${r.pops} minions popped${g.saved.runBest ? ` · best wave ${g.saved.runBest}` : ''}`;
+    }
+    else if (g.mode.practice) {
       const done = g.player.kills >= g.mode.limit, best = g.saved.practiceBest;
       title = done ? (won ? `NEW BEST: ${fmtTime(g.matchT)}` : `${g.mode.limit} TARGETS: ${fmtTime(g.matchT)}`) : 'PRACTICE OVER';
       $('result-sub').textContent = best ? `Best time ${fmtTime(best)}` : '';
@@ -363,7 +382,7 @@ export class Hud {
     }
     else if (g.mode.id === 'duel') { const foe = g.babos.find(b => !b.isPlayer)!; title = won ? 'YOU WIN!' : p1(foe.name) + ' WINS'; $('result-sub').textContent = `${g.player.kills} : ${foe.kills}`; }
     else { title = won ? 'WINNER!' : `${ordinal(place)} PLACE`; $('result-sub').textContent = ''; }
-    if (g.endReason && !g.mode.waves) $('result-sub').textContent = g.endReason;
+    if (g.endReason && !g.mode.waves && !g.run) $('result-sub').textContent = g.endReason;
     $('result-title').textContent = title;
     $('result-title').className = won ? '' : 'lose';
     $('again').textContent = g.online ? 'REMATCH' : 'PLAY AGAIN';
@@ -408,6 +427,9 @@ export class Hud {
 
   onPlayerDeath(killer: Babo | null, cause = '') {
     this.deathKiller = killer ? killer.name : '';
+    if (cause === 'swarm' || (this.g.run && !killer)) {
+      $('dead-by').innerHTML = 'Swarmed!'; $('dead-tip').textContent = ''; $('dead').classList.add('show'); $('dead').classList.remove('cam'); return;
+    }
     const c = causeOf(cause || killer?.weapon || '');
     const art = cause === 'nuke' || cause === 'grenade' || cause === 'mine' ? 'a' : 'the';
     $('dead-by').innerHTML = killer ? `Popped by <b style="color:${hex(killer.color)}">${esc(this.g.nameOf(killer))}</b>${c ? ` <small>with ${art} <b style="color:${hex(c.color)}">${c.name}</b></small>` : ''}` : `Popped yourself${c && cause !== START_WEAPON ? ` <small>with ${art} <b style="color:${hex(c.color)}">${c.name}</b></small>` : ''}`;
@@ -528,9 +550,17 @@ export class Hud {
   }
 
   floater(x: number, z: number, n: number) {
+    if (this.floaters.length > 45) return;   // Rollout swarms: don't flood the page
     const el = document.createElement('div'); el.className = 'floater'; el.textContent = String(n);
     $('floaters').appendChild(el);
     this.floaters.push({ el, x: x + (Math.random() - 0.5) * 0.6, z, t: 0 });
+  }
+
+  /** A word that floats up off a ball ("DODGE", "LEVEL UP"). */
+  floaterText(x: number, z: number, text: string, color: string) {
+    const el = document.createElement('div'); el.className = 'floater word'; el.textContent = text; el.style.color = color;
+    $('floaters').appendChild(el);
+    this.floaters.push({ el, x, z, t: 0 });
   }
 
   scoreboard(show: boolean) {
@@ -629,8 +659,9 @@ export class Hud {
     // player panel
     const hp = Math.max(0, Math.ceil(p.hp));
     $('hp-num').textContent = String(p.alive ? hp : 0);
-    $('hp-fill').style.transform = `scaleX(${p.alive ? Math.min(1, p.hp / BALL.hp) : 0})`;
-    $('hp-over').style.transform = `scaleX(${p.alive ? Math.max(0, (p.hp - BALL.hp) / 50) : 0})`;
+    const full = g.run ? p.maxHp : BALL.hp;
+    $('hp-fill').style.transform = `scaleX(${p.alive ? Math.min(1, p.hp / full) : 0})`;
+    $('hp-over').style.transform = `scaleX(${p.alive ? Math.max(0, (p.hp - full) / 50) : 0})`;
     $('hp').classList.toggle('low', p.alive && p.hp < 30);
     const w = WEAPONS[p.weapon];
     const key = `${p.weapon}|${p.ammo}|${p.reloadT > 0}|${p.nades}|${p.reserve}`;
@@ -659,7 +690,8 @@ export class Hud {
     ($('cross') as HTMLElement).style.setProperty('--r', String(p.reloadT > 0 ? 1 - p.reloadT / w.reload : 0));
 
     // death overlay
-    if (!p.alive && g.state === 'playing') {
+    if (!p.alive && g.state === 'playing' && g.run) { $('dead-t').textContent = ''; $('dead-next').textContent = ''; }
+    else if (!p.alive && g.state === 'playing') {
       const out = g.mode.waves && g.wv.out.has(p.id);
       $('dead-t').textContent = out ? (g.wv.breakT > 0 ? 'Back any second' : 'Out until the next wave') : `Back in ${Math.max(0, p.respawnT).toFixed(1)}s`;
       $('dead-next').textContent = `Respawning with ${g.mode.gun ? WEAPONS[LADDER[Math.min(p.tier, LADDER.length - 1)]].name : WEAPONS[g.mode.waves ? 'chaingun' : START_WEAPON].name} + ${ABILITIES[g.pendingAbility].name}. P to change ability.`;
@@ -681,7 +713,11 @@ export class Hud {
     }
 
     // clock + race
-    if (g.mode.practice) {
+    if (g.run) {
+      const r = g.run;
+      $('clock').textContent = r.bossWave ? 'BOSS' : `0:${String(Math.max(0, Math.ceil(r.t))).padStart(2, '0')}`;
+      $('clock').classList.toggle('hurry', r.bossWave || (r.t < 5 && r.phase === 'wave'));
+    } else if (g.mode.practice) {
       $('clock').textContent = fmtTime(g.matchT); $('clock').classList.remove('hurry');
     } else if (g.mode.waves) {
       const w = g.wv;
@@ -696,7 +732,11 @@ export class Hud {
       this.boardT = 0.25;
       const ranked = this.ranked();
       const place = ranked.indexOf(p) + 1;
-      if (g.mode.practice) {
+      if (g.run) {
+        const r = g.run, xp = Math.min(1, r.xp / r.xpNeed);
+        $('race').innerHTML = `<span class="rwave">WAVE <b>${r.n}</b>/${RUN.waves}</span><span class="rcoins"><i class="coin"></i>${r.mats}</span><span class="rlvl">LV ${r.lvl}<i class="xpbar"><b style="transform:scaleX(${xp})"></b></i></span>`;
+        $('mini').innerHTML = '';
+      } else if (g.mode.practice) {
         const best = g.saved.practiceBest;
         $('race').innerHTML = `<b>${p.kills}</b><span>/ ${g.mode.limit} targets${best ? ` &middot; best ${fmtTime(best)}` : ''}</span><em>1-8 swap guns</em>`;
       } else if (g.mode.waves) {
@@ -715,7 +755,7 @@ export class Hud {
         $('race').innerHTML = this.ffaMeter() + `<b>L${Math.min(p.tier + 1, LADDER.length)}</b><span>/ ${LADDER.length} &middot; ${WEAPONS[LADDER[Math.min(p.tier, LADDER.length - 1)]].name}${need ? ' &middot; ' + need : ''}</span><em>${ordinal(place)}</em>`;
       } else $('race').innerHTML = this.ffaMeter() + `<b>${p.kills}</b><span>/ ${g.mode.limit}</span><em>${ordinal(place)}</em>`;
       const top = ranked.slice(0, 4); if (!top.includes(p)) top[3] = p;
-      $('mini').innerHTML = top.map(b => `<div class="${b.isPlayer ? 'me' : ''}"><i style="background:${hex(b.color)}"></i><span>${esc(this.g.nameOf(b))}</span><b>${g.mode.gun ? lvl(b) : b.kills}</b></div>`).join('');
+      if (!g.run) $('mini').innerHTML = top.map(b => `<div class="${b.isPlayer ? 'me' : ''}"><i style="background:${hex(b.color)}"></i><span>${esc(this.g.nameOf(b))}</span><b>${g.mode.gun ? lvl(b) : b.kills}</b></div>`).join('');
       if ($('board').classList.contains('open')) this.renderBoard();
     }
     void this.deathKiller;
@@ -724,7 +764,7 @@ export class Hud {
 
 /** Render each gun model once into a small transparent picture for the menu. */
 let thumbCache: Partial<Record<WeaponId, string>> | null = null;
-function gunThumbs() {
+export function gunThumbs() {
   if (thumbCache) return thumbCache;
   thumbCache = {};
   try {

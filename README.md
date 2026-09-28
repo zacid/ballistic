@@ -13,6 +13,16 @@ Rolling toy balls with guns. A top-down arena shooter in the spirit of Babo Viol
 - **Themes:** **Toy room**, **Snow** (snowfall, snow-capped blocks, and frozen puddles that barely grip, so you slide), **City** (rain on wet tarmac with road markings, and the odd thunderclap), or **Any** for a different one each match. Works on every arena and mode, and the host's pick is used online.
 - **Arenas:** **Random** (a freshly generated layout every match, small, medium or large), or two hand-made maps with raised floors: **Fort** (a keep with ramps and battlements; Hold the Fort always plays here) and **Towers** (two raised corner towers).
 
+### Rollout (Brotato-style run, solo)
+
+Twenty timed waves (22 s growing to a minute) in an open arena. Swarms of cheap minion balls come at you: rollers, dashers (they stop, flash, then charge), spitters (keep their distance and lob blobs), tanks, and splitters that burst into three minis. Red crosses on the floor show where the next group lands. Gun bots join as elites from wave 4, and waves 10 and 20 are boss waves that end when the boss pops. Your own blasts never hurt you here, and you only get one life.
+
+- **Coins** drop from everything you pop; they're your money and your XP. Roll near them to hoover them up. Anything left on the floor when the wave ends goes into a piggy bank that pays out double on the next wave's coins.
+- **Level-ups:** after each wave, pick one of four stat upgrades per level (tiers: common, uncommon, rare, legendary; luck improves the odds).
+- **The shop:** four offers per wave. **Main guns** (the one you aim; buying the one you hold upgrades its tier), **turrets** that bolt onto your ball and fire on their own at the nearest enemy (up to 4; two of the same tier combine into the next), and **items** that trade stats (Glass Cannon: +25% damage, -15 HP). Lock offers to keep them, reroll for a rising price, sell turrets for 40%.
+- **Ball types:** Classic, Bowling Ball (tough, heavy, thorny, slow), Ping-pong (fast, dodgy, fragile), Magnet (coins from twice as far, extra harvesting), Gearball (starts with a turret; turrets hit harder, your gun softer).
+- The numbers live in `src/rundata.ts`; the run itself in `src/run.ts`, the between-wave screens in `src/runui.ts`.
+
 ### Gun Game
 
 Every pop moves you one weapon up the ladder: rockets, railgun, chaingun, flamethrower, bouncer, shotgun, lightning gun, pistol, unlimited grenades, then spikes. Pop someone with spikes to win. One pop per level against bots, two in the 1v1. Getting spiked (or popping yourself) drops you a level. The spikes ability and grenade pickups are off in this mode.
@@ -149,6 +159,7 @@ The relay uses one SQLite-backed Durable Object per room with the WebSocket Hibe
 | `src/arena.ts` | Random and hand-made arenas, raised floors and ramps, collision, A*, floor paint |
 | `src/render.ts` | Renderer, shadows, GTAO, bloom, quality presets, GPU timing |
 | `src/fx.ts` | Particles, smoke, flashes, shockwave rings, casings, the nuke blast |
+| `src/run.ts`, `src/rundata.ts`, `src/runui.ts` | Rollout: waves, minion swarm, coins, turrets, stats, shop; its numbers; its screens |
 | `src/themes.ts` | Colours, light and weather for each arena theme |
 | `src/weather.ts` | Rain (with splashes) and snowfall that follow the camera |
 | `src/audio.ts` | Synthesised sound effects |
@@ -158,7 +169,7 @@ The relay uses one SQLite-backed Durable Object per room with the WebSocket Hibe
 
 ## Tests
 
-`tests/solo.mjs` fast-forwards bot-only matches (Gun Game on Fort and Towers, free-for-all) and checks for errors. `tests/waves.mjs` and `tests/waves-duo.mjs` cover Hold the Fort solo and online; `tests/boss-stuck.mjs` measures how long bosses spend wedged (before vs after the wide-ball pathing); `tests/qol.mjs` covers the hit arcs, killcam, pad labels, results stats, volume sliders, shadow modes and memory; `tests/newguns.mjs` and `tests/weapons-duo.mjs` cover the flamethrower, gravity gun and mines offline and online; `tests/guns.mjs` checks gun pickups, power-weapon ammo and the lingering railgun beam; `tests/adaptive-ffa.mjs` and `tests/adaptive-coop.mjs` check the Free-for-all and online versions; `tests/director.mjs` checks the difficulty climbs for a strong player and falls for a weak one. `tests/bv2.mjs` covers the kill feed, hit markers, casings, the Nuke Bot (damage, bots fleeing, the guest's copy), the three themes, ice sliding and the theme picker; `tests/bv2-duo.mjs` checks the theme and a nuke kill sync between two browsers. `tests/gg.mjs` plays online Gun Game 1v1 through the local servers, checks the ladder syncs, and tests the rematch.
+`tests/solo.mjs` fast-forwards bot-only matches (Gun Game on Fort and Towers, free-for-all) and checks for errors. `tests/waves.mjs` and `tests/waves-duo.mjs` cover Hold the Fort solo and online; `tests/boss-stuck.mjs` measures how long bosses spend wedged (before vs after the wide-ball pathing); `tests/qol.mjs` covers the hit arcs, killcam, pad labels, results stats, volume sliders, shadow modes and memory; `tests/newguns.mjs` and `tests/weapons-duo.mjs` cover the flamethrower, gravity gun and mines offline and online; `tests/guns.mjs` checks gun pickups, power-weapon ammo and the lingering railgun beam; `tests/adaptive-ffa.mjs` and `tests/adaptive-coop.mjs` check the Free-for-all and online versions; `tests/director.mjs` checks the difficulty climbs for a strong player and falls for a weak one. `tests/rollout.mjs` plays Rollout with a scripted player through waves, level-ups, the shop, the wave-10 boss and a death. `tests/rain-audio.mjs` renders 12 s of the City rain ambience to a WAV so you can listen to it. `tests/bv2.mjs` covers the kill feed, hit markers, casings, the Nuke Bot (damage, bots fleeing, the guest's copy), the three themes, ice sliding and the theme picker; `tests/bv2-duo.mjs` checks the theme and a nuke kill sync between two browsers. `tests/gg.mjs` plays online Gun Game 1v1 through the local servers, checks the ladder syncs, and tests the rematch.
 
 `tests/p2p.mjs` runs two headless browsers against a local PeerJS server, creates an invite, joins it, plays a duel and checks that kills and disconnects sync:
 

@@ -56,7 +56,8 @@ export class Input {
     const k = e.key.toLowerCase();
     if ((e.target as HTMLElement)?.tagName === 'INPUT' && (e.target as HTMLInputElement).type === 'text' && k !== 'escape') return;
     if (k === 'tab') { e.preventDefault(); this.g.hud.scoreboard(down && this.g.state !== 'menu'); return; }
-    if (down && !e.repeat) {
+    const shopping = !!this.g.run && (this.g.run.phase === 'shop' || this.g.run.phase === 'levelup');
+    if (down && !e.repeat && !shopping) {
       if (k === 'p' || k === 'escape') { if (this.g.state === 'playing' || this.g.state === 'countdown') this.g.hud.togglePause(); }
       if (k === 'f') this.g.hud.setPerf(!this.g.saved.perf);
       if (k === 'm') { this.g.setMuted(!this.g.saved.muted); this.g.hud.syncSettings(); this.g.hud.toast(this.g.saved.muted ? 'Sound off' : 'Sound on'); }

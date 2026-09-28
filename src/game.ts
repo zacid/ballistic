@@ -16,6 +16,7 @@ import { Hud } from './hud';
 import { Input } from './input';
 import { thinkBot } from './bots';
 import { Director, FfaDirector } from './director';
+import { Run } from './run';
 import { Stats } from './stats';
 import { Net, NetEvent, RosterEntry, StartOffer, HostState } from './net';
 import { PeerRoom, newCode } from './peerroom';
@@ -23,14 +24,15 @@ import { WsRoom } from './wsroom';
 import { DuoRoom } from './duoroom';
 import { RELAY_URL } from './config';
 
-interface Shot { owner: number; x: number; y: number; z: number; vx: number; vz: number; life: number; dist: number; w: WeaponId; mesh?: THREE.Object3D; trailT: number; cosmetic: boolean; bounces: number }
+export interface Shot { owner: number; x: number; y: number; z: number; vx: number; vz: number; life: number; dist: number; w: WeaponId; mesh?: THREE.Object3D; trailT: number; cosmetic: boolean; bounces: number;
+  src?: string; mul?: number; range?: number }   // Rollout: turret shots ('turret'), their damage scale, and falloff range
 interface Nade { owner: number; x: number; y: number; z: number; vx: number; vy: number; vz: number; fuse: number; mesh: THREE.Mesh; cosmetic: boolean }
 type PickKind = 'health' | 'nades' | 'mega';
 interface Pickup { kind: PickKind | 'weapon'; x: number; z: number; t: number; mesh: THREE.Group; w?: WeaponId; drop?: string; ttl?: number }
 interface Mine { owner: number; x: number; z: number; y: number; arm: number; life: number; mesh: THREE.Group; cosmetic: boolean }
 interface Fire { owner: number; x: number; z: number; y: number; t: number }
 interface Nuke { owner: number; x: number; z: number; y: number; t: number; beepT: number; mesh: THREE.Group; warn: THREE.Mesh; cosmetic: boolean }
-interface Rail { owner: number; x0: number; z0: number; x1: number; z1: number; y: number; t: number; hit: Set<number> }
+interface Rail { owner: number; x0: number; z0: number; x1: number; z1: number; y: number; t: number; hit: Set<number>; hitM?: Set<unknown> }
 
 const RESPAWN: Record<PickKind, number> = { health: 11, nades: 13, mega: 30 };
 /** How close you need to be to a gun pad to pick it up with E. */
@@ -47,7 +49,7 @@ const STORE = 'ballistic.v1';
 export interface Saved {
   weapon: WeaponId; ability: AbilityId; color: number; difficulty: Difficulty; quality: Quality | 'auto';
   muted: boolean; best?: number; perf?: boolean; nick: string;
-  soloMode: 'solo' | 'gungame' | 'waves'; map: MapChoice; theme: ThemeChoice; arenaSize: ArenaSize; botCount: number; coopBots: number; ffaSkill?: number; bestWave?: number; practiceBest?: number; music?: boolean; sfxVol: number; musicVol: number; records?: { streak?: number; dmg?: number; acc?: number }; aimAssist: boolean; v2?: boolean;
+  soloMode: 'solo' | 'gungame' | 'waves' | 'run'; ball: string; runBest?: number; runWins?: number; map: MapChoice; theme: ThemeChoice; arenaSize: ArenaSize; botCount: number; coopBots: number; ffaSkill?: number; bestWave?: number; practiceBest?: number; music?: boolean; sfxVol: number; musicVol: number; records?: { streak?: number; dmg?: number; acc?: number }; aimAssist: boolean; v2?: boolean;
 }
 function load(): Saved {
   let s: Partial<Saved> = {};
@@ -56,7 +58,7 @@ function load(): Saved {
     // v2: Adaptive became the default (once), since it's the one that suits Hold the Fort
     weapon: s.weapon ?? 'shotgun', ability: s.ability ?? 'dash', color: s.color ?? 0, difficulty: (s as any).v2 ? s.difficulty ?? 'adaptive' : 'adaptive',
     quality: s.quality ?? 'auto', muted: !!s.muted, best: s.best, perf: s.perf, nick: s.nick ?? '',
-    soloMode: s.soloMode ?? 'solo', map: s.map && s.map in MAPS ? s.map : 'random', theme: s.theme && s.theme in THEMES ? s.theme : 'toy', arenaSize: s.arenaSize ?? 'medium', botCount: s.botCount ?? 7, coopBots: s.coopBots ?? 5, bestWave: s.bestWave, music: s.music ?? true, sfxVol: s.sfxVol ?? 1, aimAssist: s.aimAssist ?? true, musicVol: s.musicVol ?? (s.music === false ? 0 : 0.8), v2: true,
+    soloMode: s.soloMode ?? 'solo', map: s.map && s.map in MAPS ? s.map : 'random', theme: s.theme && s.theme in THEMES ? s.theme : 'toy', ball: s.ball ?? 'classic', runBest: s.runBest, runWins: s.runWins, arenaSize: s.arenaSize ?? 'medium', botCount: s.botCount ?? 7, coopBots: s.coopBots ?? 5, bestWave: s.bestWave, music: s.music ?? true, sfxVol: s.sfxVol ?? 1, aimAssist: s.aimAssist ?? true, musicVol: s.musicVol ?? (s.music === false ? 0 : 0.8), v2: true,
   };
 }
 
@@ -103,6 +105,8 @@ export class Game {
   /** Hold the Fort state (the host runs it; guests mirror it from the host state). */
   wv = { n: 0, lives: 0, breakT: 0, queue: 0, total: 0, spawnT: 0, boss: -1, out: new Set<number>(), cleared: false };
   director = new Director();
+  /** Rollout (the Brotato-style run), while one is going. */
+  run: Run | null = null;
   /** Your numbers this match, for the results screen. */
   ms = { shots: 0, hits: 0, dmg: 0, streak: 0, gunPops: {} as Record<string, number> };
   /** While you're dead the camera watches whoever popped you. */
@@ -170,7 +174,7 @@ export class Game {
       const mesh = pickupMesh(kind); mesh.position.set(s.x, this.arena.floorAt(s.x, s.z), s.z); this.r.scene.add(mesh);
       return { kind, x: s.x, z: s.z, t: 0, mesh } as Pickup;
     });
-    if (!this.mode?.gun) this.placeGuns();
+    if (!this.mode?.gun && !this.mode?.run) this.placeGuns();
   }
 
   /** Guns lying around the arena: spread-out spots (same on both clients), power weapons nearest the middle. */
@@ -201,6 +205,7 @@ export class Game {
   /** Which arena a mode plays on, given the player's map choice. */
   resolveMap(mode: ModeDef, choice: MapChoice = this.saved.map): MapId {
     if (mode.waves) return 'fort';   // Hold the Fort is built around the keep
+    if (mode.run) return 'open';
     return choice;
   }
 
@@ -228,7 +233,7 @@ export class Game {
     const roster: RosterEntry[] = [{ id: 0, name: 'You', color: COLORS[pc].hex, team: 0, human: true, sk: this.saved.ffaSkill }];
     const cols = COLORS.filter((_, i) => i !== pc);
     const names = [...BOT_NAMES].sort(() => Math.random() - 0.5);
-    const nBots = mode.waves ? mode.bots : this.saved.botCount;   // wave slots are fixed; the director decides how many come
+    const nBots = mode.waves || mode.run ? mode.bots : this.saved.botCount;   // wave slots are fixed; the director decides how many come
     for (let i = 0; i < nBots; i++) roster.push({ id: i + 1, name: names[i % names.length], color: cols[i % cols.length].hex, team: mode.teams ? 1 : i + 1, human: false });
     this.begin(mode, (Math.random() * 1e9) | 0, roster, 0, this.resolveMap(mode), this.arenaN, this.resolveTheme());
   }
@@ -287,6 +292,7 @@ export class Game {
     for (const n of this.nades) this.r.scene.remove(n.mesh);
     for (const m of this.mines) this.r.scene.remove(m.mesh);
     for (const n of this.nukes) this.dropNuke(n);
+    this.run?.dispose(); this.run = null;
     this.babos = []; this.shots = []; this.nades = []; this.rails = []; this.mines = []; this.fires = []; this.nukes = [];
     this.mode = mode; this.seed = seed; this.endReason = ''; this.map = map;
     this.newArena(size, map, theme);
@@ -319,8 +325,9 @@ export class Game {
     for (const b of this.babos) {
       this.r.scene.add(b.root);
       // Hold the Fort: the bots wait off-stage until their wave
-      if (b.local && !(mode.waves && !b.human)) this.spawn(b, true); else { b.alive = false; b.root.visible = false; b.respawnT = 1e9; }
+      if (b.local && !((mode.waves || mode.run) && !b.human)) this.spawn(b, true); else { b.alive = false; b.root.visible = false; b.respawnT = 1e9; }
     }
+    if (mode.run) this.run = new Run(this);
     this.matchT = mode.time; this.countT = 3.2; this.state = 'countdown';
     this.paused = false;
     this.hud.onStart();
@@ -334,7 +341,13 @@ export class Game {
       ? [...this.babos].sort((a, b) => Number(b.won) - Number(a.won) || b.tier - a.tier || b.tierKills - a.tierKills || b.kills - a.kills)
       : [...this.babos].sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
     let won: boolean;
-    if (this.mode.practice) {
+    if (this.run) {
+      const r = this.run; r.phase = 'over'; this.hud.runUi.close();
+      won = r.won || !this.saved.runBest || r.n > this.saved.runBest;
+      if (!this.saved.runBest || r.n > this.saved.runBest) this.saved.runBest = r.n;
+      if (r.won) this.saved.runWins = (this.saved.runWins ?? 0) + 1;
+      this.save();
+    } else if (this.mode.practice) {
       const t = Math.round(this.matchT * 10) / 10, done = this.player.kills >= this.mode.limit;
       won = done && (!this.saved.practiceBest || t < this.saved.practiceBest);
       if (won) { this.saved.practiceBest = t; this.save(); }
@@ -344,7 +357,7 @@ export class Game {
     } else if (this.mode.teams) { const ts = this.teamScores(); won = ts[this.player.team] >= Math.max(...Object.values(ts)); }
     else won = ranked[0] === this.player;
     const place = ranked.indexOf(this.player) + 1;
-    if (!this.online && !this.mode.waves && !this.mode.practice && (!this.saved.best || place < this.saved.best)) { this.saved.best = place; this.save(); }
+    if (!this.online && !this.mode.waves && !this.mode.practice && !this.mode.run && (!this.saved.best || place < this.saved.best)) { this.saved.best = place; this.save(); }
     this.audio.play(won ? 'win' : 'lose');
     if (this.online && this.host) this.flushNet(true);
     this.hud.showResult(ranked, place, won);
@@ -463,7 +476,7 @@ export class Game {
 
   private checkLimit() {
     if (!this.host || this.state !== 'playing') return;
-    if (this.mode.waves) return;
+    if (this.mode.waves || this.mode.run) return;
     if (this.mode.practice) { if (this.player.kills >= this.mode.limit) this.end(); return; }   // stop the clock on the 20th pop
     if (this.mode.gun) { if (this.babos.some(b => b.won)) setTimeout(() => { if (this.state === 'playing') this.end(); }, 900); return; }
     const hit = this.mode.teams ? Object.values(this.teamScores()).some(v => v >= this.mode.limit) : this.babos.some(b => b.kills >= this.mode.limit);
@@ -539,7 +552,7 @@ export class Game {
     if (b.reloadT > 0 || b.cool > 0) return;
     if (w.semi && b.isPlayer) b.semiLock = true;
     if (b.ammo <= 0) { this.reload(b); return; }
-    b.ammo--; b.cool = 1 / w.rate; b.spawnShield = 0;
+    b.ammo--; b.cool = 1 / (w.rate * (this.run && b.isPlayer ? this.run.rateMul : 1)); b.spawnShield = 0;
     this.spawnShots(b);
     b.vx -= b.aimX * w.recoil; b.vz -= b.aimZ * w.recoil;
     if (b.ammo <= 0) this.reload(b);
@@ -553,12 +566,13 @@ export class Game {
     let mx = b.x + b.aimX * 0.85, mz = b.z + b.aimZ * 0.85;
     if (this.arena.raycast(b.x, b.z, mx, mz, sy) >= 0) { mx = b.x; mz = b.z; }
     if (b === this.player) this.ms.shots += w.kind === 'rail' ? 1 : w.pellets;
+    const rangeK = this.run && b.isPlayer ? this.run.rangeMul : 1;
     if (w.kind === 'rail') { this.fireRail(b, mx, sy, mz); }
-    else if (w.kind === 'zap') { this.fireZap(b, mx, sy, mz); }
+    else if (w.kind === 'zap') { this.fireZap(b, mx, sy, mz, undefined, w.range! * rangeK); }
     else for (let i = 0; i < w.pellets; i++) {
       const a = base + (w.pellets > 1 ? ((i + Math.random()) / w.pellets - 0.5) * w.spread : (Math.random() - 0.5) * w.spread);
       const sp = w.speed * (w.pellets > 1 ? 0.9 + Math.random() * 0.2 : 1);
-      const s: Shot = { owner: b.id, x: mx, y: sy, z: mz, vx: Math.cos(a) * sp, vz: Math.sin(a) * sp, life: w.life * (w.pellets > 1 ? 0.85 + Math.random() * 0.3 : 1), dist: 0, w: w.id, trailT: 0, cosmetic: !b.local, bounces: w.bounces ?? 0 };
+      const s: Shot = { owner: b.id, x: mx, y: sy, z: mz, vx: Math.cos(a) * sp, vz: Math.sin(a) * sp, life: w.life * rangeK * (w.pellets > 1 ? 0.85 + Math.random() * 0.3 : 1), dist: 0, w: w.id, trailT: 0, cosmetic: !b.local, bounces: w.bounces ?? 0, ...(rangeK !== 1 ? { range: w.speed * w.life * rangeK } : {}) };
       if (w.kind === 'rocket') { const m = new THREE.Mesh(this.rocketGeo, this.rocketMat); m.castShadow = true; m.position.set(mx, sy, mz); m.rotation.y = Math.atan2(s.vx, s.vz); this.r.scene.add(m); s.mesh = m; }
       this.shots.push(s);
     }
@@ -587,55 +601,67 @@ export class Game {
    * you (nearest, and closest to the crosshair), then chains to up to two more balls near it. The
    * shooter's client deals the damage; other clients draw the same kind of bolts from their view.
    */
-  private fireZap(b: Babo, x0: number, y: number, z0: number) {
-    const w = WEAPONS.lightning, R = w.range!, aim = Math.atan2(b.aimZ, b.aimX);
-    const sees = (ax: number, az: number, ay: number, v: Babo) => this.arena.raycast(ax, az, v.x, v.z, ay, true, CLIMB) < 0;
-    let first: Babo | null = null, best = 1e9;
-    for (const v of this.babos) {
-      if (v === b || !v.alive || !this.canDamage(b, v) || Math.abs(v.y - b.y) > 1.4) continue;
-      const dx = v.x - b.x, dz = v.z - b.z, d = Math.hypot(dx, dz);
+  fireZap(b: Babo, x0: number, y: number, z0: number, aimA?: number, range?: number, dmg0?: number, src = 'lightning') {
+    const w = WEAPONS.lightning, R = range ?? w.range!, aim = aimA ?? Math.atan2(b.aimZ, b.aimX);
+    const sees = (ax: number, az: number, ay: number, x: number, z: number) => this.arena.raycast(ax, az, x, z, ay, true, CLIMB) < 0;
+    // targets: balls, and in Rollout the minions too
+    type ZT = { x: number; z: number; y: number; babo?: Babo; m?: import('./run').Minion };
+    const cands: ZT[] = [];
+    for (const v of this.babos) if (v !== b && v.alive && this.canDamage(b, v)) cands.push({ x: v.x, z: v.z, y: v.y, babo: v });
+    if (this.run && b === this.player) for (const m of this.run.near(b.x, b.z, R + 2 * ZAP.hop)) cands.push({ x: m.x, z: m.z, y: 0, m });
+    let first: ZT | null = null, best = 1e9;
+    for (const v of cands) {
+      if (Math.abs(v.y - b.y) > 1.4) continue;
+      const dx = v.x - x0, dz = v.z - z0, d = Math.hypot(dx, dz);
       if (d > R) continue;
       let da = Math.atan2(dz, dx) - aim; while (da > Math.PI) da -= Math.PI * 2; while (da < -Math.PI) da += Math.PI * 2;
       if (Math.abs(da) > w.spread && d > 1.5) continue;
       const score = d + Math.abs(da) * 6;
-      if (score < best && sees(b.x, b.z, y, v)) { best = score; first = v; }
+      if (score < best && sees(x0, z0, y, v.x, v.z)) { best = score; first = v; }
     }
-    this.audio.play('lightning', b.x, b.z, b.isPlayer ? 1 : 0.7);
+    if (src !== 'turret') this.audio.play('lightning', b.x, b.z, b.isPlayer ? 1 : 0.7);
     if (!first) {
       // nothing in reach: a short fizzle into the air
       const a = aim + (Math.random() - 0.5) * 0.5, l = 2.5 + Math.random() * 1.5;
       this.fx.bolt(x0, y, z0, x0 + Math.cos(a) * l, y + (Math.random() - 0.3) * 0.4, z0 + Math.sin(a) * l, w.color, 0.7);
       return;
     }
-    if (b === this.player) this.ms.hits++;
-    const hitList: Babo[] = [first];
+    if (b === this.player && src !== 'turret') this.ms.hits++;
+    const hitList: ZT[] = [first];
     let cur = first;
     for (let i = 0; i < ZAP.chains; i++) {
-      let next: Babo | null = null, nd = ZAP.hop;
-      for (const v of this.babos) {
-        if (v === b || !v.alive || hitList.includes(v) || !this.canDamage(b, v) || Math.abs(v.y - cur.y) > 1.4) continue;
+      let next: ZT | null = null, nd = ZAP.hop;
+      for (const v of cands) {
+        if (hitList.includes(v) || Math.abs(v.y - cur.y) > 1.4) continue;
         const d = Math.hypot(v.x - cur.x, v.z - cur.z);
-        if (d < nd && sees(cur.x, cur.z, cur.y + 0.55, v)) { nd = d; next = v; }
+        if (d < nd && sees(cur.x, cur.z, cur.y + 0.55, v.x, v.z)) { nd = d; next = v; }
       }
       if (!next) break;
       hitList.push(next); cur = next;
     }
-    let fx = x0, fy = y, fz = z0, dmg = w.damage;
+    let fx = x0, fy = y, fz = z0, dmg = dmg0 ?? w.damage;
     for (const v of hitList) {
-      const ty = v.y + 0.55;
+      const ty = v.y + (v.m ? v.m.r : 0.55);
       this.fx.bolt(fx, fy, fz, v.x, ty, v.z, w.color, v === first ? 1.2 : 0.9);
       this.fx.glow(v.x, ty, v.z, 0, 1, 0, 0.12, 0xe0f6ff, 0.12, 0);
       if (b.local) {
         const dx = v.x - fx, dz = v.z - fz, l = Math.hypot(dx, dz) || 1;
-        this.hit(b, v, dmg, (dx / l) * w.knock, (dz / l) * w.knock, 0, 0, 'lightning');
+        if (v.babo) this.hit(b, v.babo, dmg, (dx / l) * w.knock, (dz / l) * w.knock, 0, 0, src);
+        else if (v.m && this.run) this.run.damage(b, v.m, dmg, (dx / l) * w.knock, (dz / l) * w.knock, src);
       }
       fx = v.x; fy = ty; fz = v.z; dmg *= ZAP.falloff;
     }
   }
 
+  /** Rollout turrets add their shots here. */
+  addShot(s: Shot) {
+    if (s.w === 'rocket') { const m = new THREE.Mesh(this.rocketGeo, this.rocketMat); m.scale.setScalar(0.6); m.position.set(s.x, s.y, s.z); m.rotation.y = Math.atan2(s.vx, s.vz); this.r.scene.add(m); s.mesh = m; }
+    this.shots.push(s);
+  }
+
   /** Railgun: instant beam to the first wall, piercing every ball on the way. */
   private fireRail(b: Babo, x0: number, y: number, z0: number) {
-    const w = WEAPONS.railgun, R = w.range!;
+    const w = WEAPONS.railgun, R = w.range! * (this.run && b.isPlayer ? this.run.rangeMul : 1);
     const x1 = x0 + b.aimX * R, z1 = z0 + b.aimZ * R;
     let t = this.arena.raycast(x0, z0, x1, z1, y, false, CLIMB); if (t < 0) t = 1;
     const ex = x0 + (x1 - x0) * t, ez = z0 + (z1 - z0) * t;
@@ -644,7 +670,9 @@ export class Game {
     if (!b.local) return;
     const sdx = ex - x0, sdz = ez - z0, l2 = sdx * sdx + sdz * sdz || 1;
     const hitSet = new Set<number>();
-    if (w.linger) this.rails.push({ owner: b.id, x0, z0, x1: ex, z1: ez, y, t: w.linger.t, hit: hitSet });
+    const hitM = new Set<unknown>();
+    if (w.linger) this.rails.push({ owner: b.id, x0, z0, x1: ex, z1: ez, y, t: w.linger.t, hit: hitSet, hitM });
+    if (this.run && b === this.player) for (const m of this.run.along(x0, z0, ex, ez)) { hitM.add(m); this.run.damage(b, m, w.damage, b.aimX * w.knock, b.aimZ * w.knock, 'railgun'); }
     for (const v of this.babos) {
       if (v === b || !v.alive || !this.canDamage(b, v)) continue;
       const u = ((v.x - x0) * sdx + (v.z - z0) * sdz) / l2; if (u < 0 || u > 1) continue;
@@ -751,6 +779,7 @@ export class Game {
       if (Math.random() < dt * 14) this.fx.glow(f.x + (Math.random() - 0.5) * 0.9, f.y + 0.15, f.z + (Math.random() - 0.5) * 0.9, 0, 1.4 + Math.random(), 0, 0.12 + Math.random() * 0.12, Math.random() < 0.5 ? 0xff7a2a : 0xffc94a, 0.35, 0);
       const att = this.babos[f.owner]; if (!att?.local) continue;
       const tick = Math.floor((f.t + dt) * 4) !== Math.floor(f.t * 4);   // four times a second
+      if (tick && this.run && att === this.player) for (const m of this.run.near(f.x, f.z, BURN.patchR)) this.run.damage(att, m, BURN.patchDps / 4, 0, 0, 'burn', 1);
       for (const v of this.babos) {
         if (v === att || !v.alive || !this.canDamage(att, v)) continue;
         if (Math.hypot(v.x - f.x, v.z - f.z) > BURN.patchR || Math.abs(v.y - f.y) > 0.6) continue;
@@ -791,7 +820,8 @@ export class Game {
       if (m.life <= 0) { this.removeMine(m, true); continue; }
       if (m.cosmetic || m.arm > 0) continue;
       const att = this.babos[m.owner]; if (!att) continue;
-      const trip = this.babos.some(v => v !== att && v.alive && this.canDamage(att, v) && Math.abs(v.y - m.y) < 1 && Math.hypot(v.x - m.x, v.z - m.z) < MINE.trigger + v.rad - BALL.radius);
+      const trip = this.babos.some(v => v !== att && v.alive && this.canDamage(att, v) && Math.abs(v.y - m.y) < 1 && Math.hypot(v.x - m.x, v.z - m.z) < MINE.trigger + v.rad - BALL.radius)
+        || (!!this.run && att === this.player && this.run.near(m.x, m.z, MINE.trigger - 0.3).length > 0);
       if (!trip) continue;
       this.removeMine(m);
       this.explode(m.x, m.z, m.owner, MINE.radius, MINE.damage, MINE.knock, true, m.y, 'mine');
@@ -850,6 +880,7 @@ export class Game {
       if (r.t <= 0) { this.rails.splice(i, 1); continue; }
       const att = this.babos[r.owner]; if (!att || !att.local) continue;
       const sdx = r.x1 - r.x0, sdz = r.z1 - r.z0, l2 = sdx * sdx + sdz * sdz || 1;
+      if (this.run && att === this.player && r.hitM) for (const m of this.run.along(r.x0, r.z0, r.x1, r.z1, 0.05)) { if (r.hitM.has(m)) continue; r.hitM.add(m); this.run.damage(att, m, WEAPONS.railgun.linger!.damage, 0, 0, 'railgun'); }
       for (const v of this.babos) {
         if (v === att || !v.alive || r.hit.has(v.id) || !this.canDamage(att, v)) continue;
         if (Math.abs(v.y + 0.55 - r.y) > 1.35) continue;
@@ -904,6 +935,10 @@ export class Game {
   hit(att: Babo, v: Babo, dmg: number, kx: number, kz: number, vy = 0, flag = 0, src: string = att.weapon) {
     if (!att.local || !v.alive || !this.canDamage(att, v)) return;
     if (this.mode.waves && !att.human && v.human) dmg *= this.director.botDamage(this.wv.n);
+    if (this.run) {
+      if (att === this.player && v !== att) { dmg *= this.run.outMul(att, src); this.run.lifesteal(); }
+      else if (!att.human && v.human) dmg *= this.run.enemyMul();
+    }
     if (att === this.player && v !== att && v.spawnShield <= 0) this.ms.dmg += dmg * (v.abT > 0 && v.ability === 'bubble' ? 0.3 : 1);
     if (this.ffa.has(v.id) && !att.human) { dmg *= this.ffa.damage(v.id); if (v.spawnShield <= 0) this.ffa.tookDamage(v.id, dmg); }
     if (this.ffa.has(att.id) && v !== att && v.spawnShield <= 0 && !v.human) this.ffa.dealtDamage(att.id, dmg);
@@ -919,6 +954,7 @@ export class Game {
 
   applyDamage(v: Babo, dmg: number, by: number, kx: number, kz: number, vy = 0, flag = 0, src = '') {
     if (!v.alive) return;
+    if (this.run && v === this.player && by !== v.id && v.spawnShield <= 0) { dmg = this.run.incoming(dmg); if (dmg <= 0) return; }
     if (flag & 1) { v.burnT = BURN.t; v.burnBy = by; }
     if (flag & 2) { v.flungT = 1; v.flungBy = by; }
     if (v.abT > 0 && v.ability === 'bubble') { dmg *= 0.3; kx *= 0.3; kz *= 0.3; vy *= 0.3; }
@@ -944,6 +980,7 @@ export class Game {
     if (!v.root.visible && !v.alive && !v.local) { /* already hidden by snapshot; still show the burst */ }
     v.alive = false; v.root.visible = false; v.deaths++; v.streak = 0; v.abT = 0; v.burnT = 0; v.flungT = 0; v.gravT = 0;
     if (v.local) v.respawnT = this.mode.practice && !v.human ? 0.5 : BALL.respawn;
+    if (this.run) { if (!v.human) { this.run.onEliteDeath(v); v.respawnT = 1e9; } }
     const k = this.babos[killer];
     const knifed = !!(k && k !== v && k.weapon === 'spikes');
     if (k && k !== v) { k.kills++; k.streak++; } else if (k === v) { v.kills = Math.max(0, v.kills - 1); }
@@ -962,7 +999,7 @@ export class Game {
       this.saveFfa();
     }
     // drop the gun: anyone can grab it for a few seconds (runs on every client, so no message needed)
-    if (!this.mode.gun && !this.mode.practice && v.weapon !== START_WEAPON && WEAPONS[v.weapon].kind !== 'melee' && (this.state === 'playing')) {
+    if (!this.mode.gun && !this.mode.practice && !this.mode.run && v.weapon !== START_WEAPON && WEAPONS[v.weapon].kind !== 'melee' && (this.state === 'playing')) {
       const drops = this.pickups.filter(p => p.drop);
       if (drops.length >= GUN_RESPAWN.maxDrops) this.removePickup(drops[0]);
       this.addGun(v.weapon, v.x, v.z, `${v.id}:${v.deaths}`);
@@ -980,6 +1017,7 @@ export class Game {
     }
     for (let i = 0; i < 6; i++) this.fx.puff(v.x + (Math.random() - 0.5), 0.5 + v.y, v.z + (Math.random() - 0.5), 0.35, 0.6);
     this.checkLimit();
+    if (this.run && v === this.player && this.state === 'playing') { this.run.phase = 'over'; setTimeout(() => this.end(`Swarmed on wave ${this.run?.n ?? 0}`), 900); }
   }
 
   /**
@@ -1024,6 +1062,12 @@ export class Game {
     const att = this.babos[owner];
     if (!authoritative || !att) return 0;
     let hits = 0;
+    if (this.run && att === this.player && dmg > 0) for (const m of this.run.near(x, z, r)) {
+      const dx = m.x - x, dz = m.z - z, d = Math.hypot(dx, dz) || 0.01;
+      if (d > 0.3 && this.arena.raycast(x, z, m.x, m.z, y + 0.4, true) >= 0) continue;
+      const k = Math.max(0, 1 - Math.max(0, d - m.r) / r);
+      this.run.damage(att, m, dmg * Math.pow(k, 0.7), (dx / d) * knock * k * 0.6, (dz / d) * knock * k * 0.6, src); hits++;
+    }
     for (const b of this.babos) {
       if (!b.alive) continue;
       const dx = b.x - x, dz = b.z - z, d = Math.hypot(dx, dz);
@@ -1033,6 +1077,7 @@ export class Game {
       const k = Math.max(0, 1 - Math.max(0, d - b.rad) / r);
       const nx = d > 0.01 ? dx / d : Math.random() - 0.5, nz = d > 0.01 ? dz / d : Math.random() - 0.5;
       if (b !== att && this.canDamage(att, b)) hits++;
+      if (this.run && b === att) continue;   // Rollout: your own blasts never hurt you
       this.hit(att, b, dmg * Math.pow(k, 0.7) * (b.id === owner ? 0.45 : 1), nx * knock * k, nz * knock * k, 6 * k, 0, src);
     }
     return hits;
@@ -1042,7 +1087,7 @@ export class Game {
   useAbility(b: Babo) {
     const def = ABILITIES[b.ability];
     if (b.abCool > 0 || !b.alive) return;
-    b.abCool = def.cooldown; b.abT = def.dur; b.abCount++; b.spawnShield = 0;
+    b.abCool = def.cooldown * (this.run && b.isPlayer ? this.run.cdMul : 1); b.abT = def.dur; b.abCount++; b.spawnShield = 0;
     if (b.ability === 'dash') {
       let dx = b.moveX, dz = b.moveZ; let l = Math.hypot(dx, dz);
       if (l < 0.1) { dx = b.aimX; dz = b.aimZ; l = 1; }
@@ -1051,6 +1096,10 @@ export class Game {
     if (b.ability === 'spikes') b.spikeHits.clear();
     this.abilityFx(b);
     if (b.ability === 'shockwave') {
+      if (this.run && b === this.player) for (const m of this.run.near(b.x, b.z, WAVE.radius)) {
+        const dx = m.x - b.x, dz = m.z - b.z, d = Math.hypot(dx, dz) || 0.01, k = 1 - Math.max(0, d - b.rad - m.r) / WAVE.radius;
+        this.run.damage(b, m, WAVE.damage * (0.5 + 0.5 * k), (dx / d) * WAVE.knock * k, (dz / d) * WAVE.knock * k, 'shockwave');
+      }
       for (const v of this.babos) {
         if (v === b || !v.alive) continue;
         const dx = v.x - b.x, dz = v.z - b.z, d = Math.hypot(dx, dz);
@@ -1086,6 +1135,11 @@ export class Game {
     if (b.abT <= 0 && !spikeWeapon) return;
     if (b.abT > 0) b.abT -= dt;
     if (b.abT > 0 && b.ability === 'dash' && Math.random() < dt * 40) this.fx.glow(b.x, 0.4 + b.y, b.z, -b.vx * 0.1, 0.5, -b.vz * 0.1, 0.12, b.color, 0.25);
+    if (this.run && b === this.player && b.abT > 0 && b.ability === 'spikes') for (const m of this.run.near(b.x, b.z, b.rad + 0.3)) {
+      if (m.hitCd > 0) continue; m.hitCd = 0.4;
+      const dx = m.x - b.x, dz = m.z - b.z, d = Math.hypot(dx, dz) || 0.01;
+      this.run.damage(b, m, SPIKES.damage, (dx / d) * SPIKES.knock, (dz / d) * SPIKES.knock, 'spikesab');
+    }
     if ((spikeWeapon || (b.abT > 0 && b.ability === 'spikes')) && b.local) {
       for (const v of this.babos) {
         if (v === b || !v.alive || !this.canDamage(b, v)) continue;
@@ -1118,11 +1172,12 @@ export class Game {
     else if (live && this.host) { this.matchT -= dt; if (this.matchT <= 0) { this.matchT = 0; this.end(); } }
     else if (live) this.matchT = Math.max(0, this.matchT - dt);
 
-    const diff = this.mode.waves ? this.waveDiff() : DIFFICULTY[this.saved.difficulty];
+    if (this.run && live) this.run.step(dt);
+    const diff = this.mode.waves ? this.waveDiff() : this.run ? this.run.botDiff() : DIFFICULTY[this.saved.difficulty];
     for (const b of this.babos) {
       if (!b.local) { this.stepRemote(b, dt); continue; }
       if (!b.alive) {
-        if ((this.state === 'playing' || this.state === 'countdown') && !(this.mode.waves && (!b.human || this.wv.out.has(b.id)))) { b.respawnT -= dt; if (b.respawnT <= 0) this.spawn(b); }
+        if ((this.state === 'playing' || this.state === 'countdown') && !this.mode.run && !(this.mode.waves && (!b.human || this.wv.out.has(b.id)))) { b.respawnT -= dt; if (b.respawnT <= 0) this.spawn(b); }
         continue;
       }
       b.cool -= dt; b.nadeCool -= dt; b.spawnShield = Math.max(0, b.spawnShield - dt);
@@ -1176,6 +1231,7 @@ export class Game {
   private go() {
     if (this.state !== 'countdown') return;
     this.state = 'playing'; this.audio.play('go'); this.hud.banner('ROLL!', false, 0.9);
+    if (this.run) this.run.startWave(1);
   }
 
   /** Remote balls: fire cosmetic shots at their weapon's rate while their trigger is held. */
@@ -1203,7 +1259,7 @@ export class Game {
     else if (flung) { const k = Math.exp(-0.7 * dt); b.vx *= k; b.vz *= k; }
     else if (ml > 0.01) {
       const mx = b.moveX / Math.max(1, ml), mz = b.moveZ / Math.max(1, ml);
-      const vmax = BALL.maxSpeed * (b.weapon === 'spikes' ? 1.15 : 1) * (b.boss ? BOSS.speed : 1);   // the Gun Game finale is a bit quicker
+      const vmax = BALL.maxSpeed * (b.weapon === 'spikes' ? 1.15 : 1) * (b.boss ? BOSS.speed : 1) * b.spd;   // the Gun Game finale is a bit quicker
       const tx = mx * vmax, tz = mz * vmax;
       let dx = tx - b.vx, dz = tz - b.vz; const dl = Math.hypot(dx, dz);
       const lim = BALL.accel * dt * (sp > BALL.maxSpeed * 1.1 ? 0.35 : 1) * (ice ? ICE.grip : 1);
@@ -1261,10 +1317,14 @@ export class Game {
         if (tt < 0 || tt > 1) continue;
         if (t < 0 || tt < t) { t = tt; victim = b; }
       }
+      // Rollout: the player's shots also hit minions
+      let mv: import('./run').Minion | null = null;
+      if (this.run && !s.cosmetic && s.owner === this.player.id) { const h = this.run.raycast(s.x, s.z, nx, nz); if (h && (t < 0 || h.t < t)) { t = h.t; victim = null; mv = h.m; } }
+      const src = s.src ?? s.w, mul = s.mul ?? 1;
       const hx = t >= 0 ? s.x + sdx * t : nx, hz = t >= 0 ? s.z + sdz * t : nz;
       const l = Math.hypot(s.vx, s.vz);
       // bouncer: ricochet off walls a few times
-      if (t >= 0 && !victim && s.bounces > 0 && s.life > 0) {
+      if (t >= 0 && !victim && !mv && s.bounces > 0 && s.life > 0) {
         const sx = Math.sign(s.vx) * 0.06, sz = Math.sign(s.vz) * 0.06;
         const hitX = this.arena.blocks(this.arena.cellOf(hx + sx), this.arena.cellOf(hz), s.y, CLIMB);
         const hitZ = this.arena.blocks(this.arena.cellOf(hx), this.arena.cellOf(hz + sz), s.y, CLIMB);
@@ -1287,24 +1347,31 @@ export class Game {
             if (s.life > -0.4 && t >= 0) { s.vx = s.vz = 0; s.x = hx; s.z = hz; continue; }
             this.fx.puff(hx, s.y, hz, 0.3, 0.4);
           } else {
-            const back = t >= 0 && !victim ? 0.15 : 0;
+            const back = t >= 0 && !victim && !mv ? 0.15 : 0;
             const ex = hx - (s.vx / l) * back, ez = hz - (s.vz / l) * back;
-            if (victim && shooter) this.hit(shooter, victim, w.damage, (s.vx / l) * w.knock, (s.vz / l) * w.knock, 0, 0, 'rocket');
-            const blasted = this.explode(ex, ez, s.owner, w.splash!.radius, w.splash!.damage, w.splash!.knock, true, s.y - 0.55);
-            if (s.owner === this.player.id && (victim || blasted)) this.ms.hits++;
+            if (victim && shooter) this.hit(shooter, victim, w.damage * mul, (s.vx / l) * w.knock, (s.vz / l) * w.knock, 0, 0, src);
+            else if (mv && shooter && this.run) this.run.damage(shooter, mv, w.damage * mul, (s.vx / l) * w.knock, (s.vz / l) * w.knock, src);
+            const blasted = this.explode(ex, ez, s.owner, w.splash!.radius * (s.src === 'turret' ? 0.7 : 1), w.splash!.damage * mul, w.splash!.knock, true, s.y - 0.55, src);
+            if (s.owner === this.player.id && !s.src && (victim || mv || blasted)) this.ms.hits++;
             if (this.online) this.net.send({ k: 'boom', o: s.owner, x: r2(ex), z: r2(ez), r: w.splash!.radius, y: r2(s.y - 0.55) });
           }
           if (s.mesh) this.r.scene.remove(s.mesh);
           this.shots.splice(i, 1); continue;
         }
       } else if (ended) {
-        if (victim) {
-          if (!s.cosmetic && s.owner === this.player.id) this.ms.hits++;
+        if (mv && shooter && this.run) {
+          if (s.owner === this.player.id && !s.src) this.ms.hits++;
+          const travelled = s.dist + Math.sqrt(l2) * t;
+          const dmg = w.damage * mul * (1 - (w.falloff ?? 0) * Math.min(1, travelled / (s.range ?? w.speed * w.life)));
+          this.run.damage(shooter, mv, dmg, (s.vx / l) * w.knock, (s.vz / l) * w.knock, src, w.kind === 'flame' ? 1 : 0);
+          if (w.kind !== 'flame') for (let k = 0; k < 2; k++) this.fx.bit(hx, s.y, hz, s.vx * 0.1 + (Math.random() - 0.5) * 3, 2 + Math.random() * 2, s.vz * 0.1 + (Math.random() - 0.5) * 3, 0.05, mv.def.color, 0.5);
+        } else if (victim) {
+          if (!s.cosmetic && s.owner === this.player.id && !s.src) this.ms.hits++;
           if (!s.cosmetic && shooter) {
             const travelled = s.dist + Math.sqrt(l2) * t;
-            const range = w.speed * w.life;
-            const dmg = w.damage * (1 - (w.falloff ?? 0) * Math.min(1, travelled / range));
-            this.hit(shooter, victim, dmg, (s.vx / l) * w.knock, (s.vz / l) * w.knock, 0, w.kind === 'flame' ? 1 : 0, s.w);
+            const range = s.range ?? w.speed * w.life;
+            const dmg = w.damage * mul * (1 - (w.falloff ?? 0) * Math.min(1, travelled / range));
+            this.hit(shooter, victim, dmg, (s.vx / l) * w.knock, (s.vz / l) * w.knock, 0, w.kind === 'flame' ? 1 : 0, src);
           }
           for (let k = 0; k < 3; k++) this.fx.bit(hx, s.y, hz, s.vx * 0.12 + (Math.random() - 0.5) * 4, 2 + Math.random() * 3, s.vz * 0.12 + (Math.random() - 0.5) * 4, 0.06, victim.color, 0.6);
           if (Math.random() < 0.25 && victim.gy < 0.1) this.arena.splat(hx + s.vx * 0.02, hz + s.vz * 0.02, 0.18 + Math.random() * 0.15, victim.color);
@@ -1705,7 +1772,7 @@ export class Game {
     const t0 = performance.now();
     const inMatch = this.state === 'countdown' || this.state === 'playing' || this.state === 'over';
     // online matches keep running while the pause menu is open
-    const simulate = inMatch && (!this.paused || this.online);
+    const simulate = inMatch && (!this.paused || this.online) && !(this.run && (this.run.phase === 'shop' || this.run.phase === 'levelup'));
     if (simulate) {
       if (this.online) this.interpolateRemotes();
       this.acc += raw;
@@ -1720,6 +1787,7 @@ export class Game {
     const dt = simulate ? raw : 0;
     for (const b of this.babos) if (b.alive) updateBaboVisual(b, dt);
     this.fx.update(dt);
+    this.run?.draw(this.clock);
     const f = this.r.focus; this.weather.update(raw, inMatch ? f.x : 0, inMatch ? f.z : 0, this.clock);
     if (this.theme === 'city' && (this.state === 'playing' || !inMatch)) {
       // the odd thunderclap: a flash, then the rumble a moment later
@@ -1779,6 +1847,7 @@ export class Game {
     const mode = this.mode, bs = this.babos;
     let hot = false;
     if (mode.practice) { m.set('match', 0); return; }
+    if (this.run) { m.set('match', this.run.phase !== 'wave' ? 0 : this.run.bossWave || this.run.n >= 15 ? 2 : 1); return; }
     if (mode.waves) hot = this.wv.boss >= 0 || (this.wv.lives <= 1 && this.wv.n > 1) || this.wv.n >= 8;
     else if (mode.gun) hot = bs.some(b => b.tier >= LADDER.length - 2);
     else if (mode.teams) hot = Math.max(...Object.values(this.teamScores())) >= mode.limit - 5;

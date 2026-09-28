@@ -146,6 +146,71 @@ body.touch #cross, #hud.hidden ~ #cross { display: none; }
 #cross.kill .hm { color: #ff4a3d; animation: hmk .45s ease-out; }
 @keyframes hm { 0% { opacity: 1; transform: scale(.8); } 100% { opacity: 0; transform: scale(1.1); } }
 @keyframes hmk { 0% { opacity: 1; transform: scale(1.5) rotate(0deg); } 60% { opacity: 1; transform: scale(1.15); } 100% { opacity: 0; transform: scale(1.2); } }
+
+/* ---------- Rollout ---------- */
+i.coin { display: inline-block; width: 14px; height: 14px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #fff2a8, #ffc83a 45%, #c98a12); border: 2px solid var(--ink); vertical-align: -2px; margin-right: 4px; }
+#race .rwave { font: 400 16px var(--display); color: var(--cream); }
+#race .rwave b { font-size: 20px; }
+#race .rcoins { font: 400 18px var(--display); color: #ffd84a; margin-left: 10px; }
+#race .rlvl { font: 400 14px var(--display); color: var(--cream); margin-left: 10px; display: inline-flex; align-items: center; gap: 6px; }
+#race .xpbar { display: inline-block; width: 64px; height: 8px; border-radius: 4px; background: var(--ink); overflow: hidden; }
+#race .xpbar b { display: block; height: 100%; background: linear-gradient(90deg, #7dffb0, #3ee08f); transform-origin: 0 50%; }
+.floater.word { width: 120px; margin-left: -60px; font-size: 18px; }
+#runui { z-index: 22; background: radial-gradient(rgba(27,35,64,0.55), rgba(27,35,64,0.88)); }
+.ru { width: min(980px, 100%); padding: 16px 18px 18px; text-align: left; display: grid; gap: 12px; }
+.ru-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.ru-title { font: 400 min(7vw, 38px) var(--display); color: var(--tangerine); text-shadow: 0 3px 0 var(--ink); }
+.ru-title small { font-size: .6em; color: var(--cream); }
+.ru-coins { font: 400 28px var(--display); color: #ffd84a; display: flex; align-items: center; gap: 4px; }
+.ru-coins i.coin { width: 22px; height: 22px; }
+.ru-coins span { font: 700 13px var(--ui); color: var(--muted); margin-left: 10px; }
+.ru-sub { color: var(--muted); font-weight: 700; margin-top: -6px; }
+.ru-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.ru-card { position: relative; background: var(--ink-2); border: 3px solid var(--t); border-radius: 14px; padding: 10px 10px 12px; display: grid; gap: 4px; align-content: start; color: var(--cream); text-align: left; font: inherit; box-shadow: 0 4px 0 rgba(0,0,0,0.3); }
+button.ru-card { cursor: pointer; transition: transform .1s; }
+button.ru-card:hover { transform: translateY(-3px); }
+.ru-card em { position: absolute; top: 6px; right: 8px; font: 400 12px var(--display); color: var(--muted); font-style: normal; }
+.ru-card .tier { font: 800 10px var(--ui); letter-spacing: .8px; color: var(--t); text-transform: uppercase; }
+.ru-card b { font: 400 18px var(--display); }
+.ru-card strong { font: 400 30px var(--display); color: var(--t); }
+.ru-card p { margin: 0; color: var(--muted); font-size: 12.5px; font-weight: 600; line-height: 1.3; }
+.ru-card img { width: 100%; max-width: 120px; aspect-ratio: 16/10; object-fit: contain; justify-self: center; filter: drop-shadow(0 3px 0 rgba(0,0,0,0.35)); }
+.ru-glyph { justify-self: center; width: 64px; height: 64px; border-radius: 16px; display: grid; place-items: center; font: 400 26px var(--display); color: var(--ink); background: var(--t); margin: 4px 0; }
+.ru-card ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; font-size: 12.5px; font-weight: 700; min-height: 48px; }
+.ru-card li.up, .ru-stats .up b, .ru-slot .up { color: #7dffb0; }
+.ru-card li.down, .ru-stats .down b { color: #ff8a8a; }
+.ru .dim, .ru-card li.dim { color: var(--muted); font-weight: 600; }
+.ru-card.sold { opacity: .45; }
+.ru-card.locked { box-shadow: 0 0 0 3px var(--cream), 0 4px 0 rgba(0,0,0,0.3); }
+.ru-buy { display: flex; gap: 6px; margin-top: 4px; }
+.ru-buy button, .ru-slot button { border: 3px solid var(--ink); border-radius: 10px; font: 400 15px var(--display); cursor: pointer; padding: 3px 10px; }
+.ru-buy .buy { flex: 1; background: linear-gradient(#ffe08a, #ffc83a); color: var(--ink); }
+.ru-buy .buy.poor { background: var(--ink); color: var(--muted); }
+.ru-buy .lock { background: var(--ink); color: var(--muted); font-size: 11px; }
+.ru-card.locked .lock { color: var(--cream); }
+.ru-actions { display: flex; gap: 12px; justify-content: flex-end; align-items: center; flex-wrap: wrap; }
+.ru-actions .big-btn { margin-top: 0; font-size: 28px; padding: 6px 30px 9px; }
+.ru-actions .ghost-btn { margin-top: 0; }
+.ru-msg { justify-self: center; background: var(--cherry); color: var(--cream); font-weight: 800; padding: 4px 14px; border-radius: 10px; }
+.ru-load { display: grid; grid-template-columns: 1.3fr 1fr; gap: 14px; border-top: 2px solid var(--ink-2); padding-top: 10px; }
+.ru-col { display: grid; gap: 6px; align-content: start; }
+.ru-slots { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.ru-slot { background: var(--ink-2); border: 3px solid var(--t, transparent); border-radius: 12px; padding: 5px; display: grid; gap: 1px; justify-items: center; text-align: center; font-size: 12px; }
+.ru-slot.main { grid-template-columns: 80px 1fr; justify-items: start; text-align: left; align-items: center; }
+.ru-slot.main img { grid-row: span 2; }
+.ru-slot img { width: 64px; aspect-ratio: 16/10; object-fit: contain; }
+.ru-slot b { font: 400 13px var(--display); }
+.ru-slot span { color: var(--t, var(--muted)); font-weight: 800; font-size: 11px; }
+.ru-slot.empty { border-style: dashed; border-color: var(--ink-2); color: var(--muted); min-height: 84px; align-content: center; background: rgba(42,53,97,0.4); }
+.ru-slot div { display: flex; gap: 3px; flex-wrap: wrap; justify-content: center; }
+.ru-slot button { font-size: 11px; padding: 1px 6px; border-width: 2px; background: var(--ink); color: var(--cream); }
+.ru-slot button.up { background: #3ee08f; color: var(--ink); }
+.ru-items { display: flex; gap: 5px; flex-wrap: wrap; }
+.ru-item { background: var(--ink-2); border-radius: 8px; padding: 2px 8px; font-weight: 700; font-size: 12.5px; }
+.ru-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 12px; font-size: 12.5px; font-weight: 700; }
+.ru-stats div { display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,248,236,0.08); }
+.ru-stats span { color: var(--muted); }
+@media (max-width: 760px) { .ru-cards { grid-template-columns: 1fr 1fr; } .ru-load { grid-template-columns: 1fr; } .ru-slots { grid-template-columns: 1fr 1fr; } }
 @media (prefers-reduced-motion: reduce) { #cross.hit .hm, #cross.kill .hm { animation-duration: .01s; } }
 
 #sticks { display: none; position: absolute; inset: 0; }
@@ -438,7 +503,7 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
   <h1 id="title">BALLISTIC<span class="dot">.</span></h1>
   <div id="tagline">Eight toy balls, one arena. First to 20 pops wins.</div>
   <div id="setup">
-    <div><div class="label">SOLO MODE</div><div class="seg" id="solo-seg"></div></div>
+    <div><div class="label">SOLO MODE</div><div class="seg" id="solo-seg"></div><div class="seg sub" id="ball-seg" hidden></div></div>
     <div><div class="label">ARENA</div><div class="seg" id="map-seg"></div><div class="seg sub" id="size-seg"></div><div class="seg sub" id="theme-seg"></div></div>
     <div><div class="label">BOTS</div><div class="seg" id="difficulty-seg"></div><div class="seg sub" id="count-seg"></div></div>
   </div>
@@ -517,6 +582,7 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
   <button class="ghost-btn" id="to-menu">MAIN MENU</button>
 </div>
 
+<div id="runui" class="screen"></div>
 <div id="toast" class="pill"></div>
 <div id="loading">Inflating balls&hellip;</div>
 

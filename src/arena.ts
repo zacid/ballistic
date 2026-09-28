@@ -22,7 +22,7 @@ export function rng(seed: number) {
 const TOY = LOOKS.toy.blocks;
 
 export interface Spot { x: number; z: number }
-export type MapId = 'random' | 'fort' | 'towers';
+export type MapId = 'random' | 'fort' | 'towers' | 'open';
 /** How far above a shot a bare platform floor can be and still be skimmed onto. */
 export const CLIMB = 1.4;
 export const STEP = 0.35;           // how high a ball can roll up without a ramp
@@ -61,6 +61,7 @@ export class Arena {
   constructor(public seed: number, size = N, public map: MapId = 'random', public theme: ThemeId = 'toy') {
     if (map === 'fort') size = 30;
     if (map === 'towers') size = 22;
+    if (map === 'open') size = 30;
     this.n = size; this.half = (size * CELL) / 2;
     this.h = new Uint8Array(size * size); this.col = new Int8Array(size * size).fill(-1);
     this.fl = new Uint8Array(size * size); this.ramp = new Int8Array(size * size).fill(-1); this.rampBase = new Float32Array(size * size);
@@ -68,6 +69,7 @@ export class Arena {
     this.floorSize = size * CELL + FLOOR_MARGIN * 2;
     if (map === 'fort') this.buildFort();
     else if (map === 'towers') this.buildTowers();
+    else if (map === 'open') this.buildOpen();
     else this.generate();
     if (theme === 'snow') this.freeze();
     this.build();
@@ -277,6 +279,21 @@ export class Arena {
     for (const [x, z] of [[0, this.at(3)], [0, this.at(n - 4)], [this.at(3), 0], [this.at(n - 4), 0]]) { this.pickups.push({ x, z }); this.pickupKinds.push('health'); }
     this.homeSpawns = this.findSpawns((i, j) => this.fl[this.idx(i, j)] === 1);
     this.spawns = [...this.findSpawns((i, j) => this.fl[this.idx(i, j)] === 0 && Math.max(Math.abs(i - 14.5), Math.abs(j - 14.5)) > 9), ...this.homeSpawns];
+  }
+
+  /** "Open" (Rollout): a big clear floor for kiting swarms, with a scatter of pillars and low blocks to weave round. */
+  private buildOpen() {
+    this.outerWall();
+    const r = rng(this.seed);
+    const spots: [number, number, number][] = [[7, 7, 2], [6, 13, 1], [11, 5, 1], [11, 11, 3]];
+    for (const [i, j, h] of spots) {
+      const di = Math.floor(r() * 2), dj = Math.floor(r() * 2);
+      this.mirror4(i + di, j + dj, (a, b) => this.wall(a, b, h, Math.floor(r() * 6)));
+      if (h === 1 && r() < 0.6) this.mirror4(i + di + 1, j + dj, (a, b) => this.wall(a, b, 1, 3));
+    }
+    this.spawns = this.findSpawns();
+    this.homeSpawns = [];
+    this.pickups = []; this.pickupKinds = [];
   }
 
   /** "Towers": a 1v1 map with two raised towers in opposite corners and cover in the middle. */
