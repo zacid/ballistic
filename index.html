@@ -211,6 +211,60 @@ button.ru-card:hover { transform: translateY(-3px); }
 .ru-stats div { display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,248,236,0.08); }
 .ru-stats span { color: var(--muted); }
 @media (max-width: 760px) { .ru-cards { grid-template-columns: 1fr 1fr; } .ru-load { grid-template-columns: 1fr; } .ru-slots { grid-template-columns: 1fr 1fr; } }
+
+#edgearrows { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.edgearrow { position: absolute; left: 0; top: 0; width: 0; height: 0; font: 400 11px var(--display); color: var(--c); text-shadow: 0 1px 0 var(--ink); white-space: nowrap; }
+.edgearrow::before { content: ""; position: absolute; left: -10px; top: -9px; border-left: 20px solid var(--c); border-top: 9px solid transparent; border-bottom: 9px solid transparent; filter: drop-shadow(0 0 2px var(--ink)); }
+.mode-btn.run { background: linear-gradient(#ffe9a8, #ffc83a); }
+.ru-mate { font: 400 15px var(--display); color: var(--muted); background: var(--ink); border-radius: 10px; padding: 3px 10px; }
+.ru-mate.ready { color: var(--ink); background: #7dffb0; }
+.big-btn.waiting { font-size: 20px; background: var(--ink-2); color: var(--muted); cursor: default; }
+.ru.won { text-align: center; justify-items: center; }
+.ru-title.big { font-size: min(12vw, 72px); }
+.ru-actions.center { justify-content: center; }
+.ru-card.poor:not(.sold) { opacity: .72; }
+.ru-stats .chg b { background: rgba(255,255,255,0.08); border-radius: 4px; padding: 0 4px; }
+.ru-item { display: inline-flex; align-items: center; gap: 6px; }
+.ru-item button { border: 0; border-radius: 6px; background: var(--ink); color: var(--muted); font: 700 11px var(--ui); cursor: pointer; padding: 0 5px; }
+.ru-item button:hover { color: var(--cream); background: var(--cherry); }
+.ru-load.one { grid-template-columns: 1fr; }
+.ru-load.one .ru-stats { grid-template-columns: repeat(3, 1fr); }
+#result-stats .bd { text-align: left; padding: 8px 12px 10px; min-width: 280px; display: grid; gap: 3px; }
+.bd-row { display: grid; grid-template-columns: 110px 1fr auto; gap: 8px; align-items: center; font-size: 12.5px; font-weight: 700; }
+.bd-row i { height: 8px; background: var(--ink); border-radius: 4px; overflow: hidden; }
+.bd-row i b { display: block; height: 100%; background: var(--tangerine); }
+.bd-row em { font-style: normal; color: var(--muted); font-size: 11.5px; }
+.bd.waves { max-height: 190px; overflow-y: auto; }
+.bd table { border-collapse: collapse; font-size: 12px; font-weight: 700; }
+.bd th { font: 400 10px var(--display); color: var(--muted); padding: 0 8px; text-align: right; }
+.bd td { padding: 1px 8px; text-align: right; }
+.bd .dim { color: var(--muted); }
+
+.ru-card li.cls { font: 400 12px var(--display); color: var(--k); letter-spacing: .5px; }
+.ru-card li.cls span { font: 700 11px var(--ui); color: var(--muted); margin-left: 6px; letter-spacing: 0; }
+.ru-card li.deal { color: #ffd84a; font-weight: 900; }
+.ru-sets { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; }
+.ru-sets .set { display: grid; grid-template-columns: auto auto; justify-content: start; column-gap: 8px; font-size: 12px; font-weight: 700; color: var(--muted); }
+.ru-sets .set b { font: 400 13px var(--display); color: var(--k); }
+.ru-sets .set i { font-style: normal; color: var(--k); letter-spacing: 1px; font-size: 11px; }
+.ru-sets .set span { grid-column: 1 / -1; font-size: 11.5px; }
+.ru-sets .set.on span { color: #7dffb0; }
+.ru-cards.one { grid-template-columns: minmax(0, 300px); justify-content: center; }
+.ru.crate .ru-card { justify-items: center; text-align: center; }
+
+#lifestats-body { width: min(980px, 100%); display: grid; gap: 12px; text-align: left; }
+.ls-tiles { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.ls-tiles .st { background: var(--panel); border: 3px solid var(--ink); border-radius: 12px; padding: 5px 14px 6px; min-width: 110px; text-align: center; }
+.ls-tiles .st b { display: block; font: 400 24px var(--display); }
+.ls-tiles .st span { font: 800 10px var(--ui); letter-spacing: .8px; color: var(--muted); }
+.ls-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.ls-grid .bd { padding: 10px 12px 12px; display: grid; gap: 4px; align-content: start; }
+.ls-grid table { border-collapse: collapse; font-size: 13px; font-weight: 700; width: 100%; }
+.ls-grid td { padding: 2px 0; border-bottom: 1px solid rgba(255,248,236,0.08); }
+.ls-grid td:last-child { text-align: right; color: var(--cream); }
+.ls-grid td:first-child { text-align: left; color: var(--muted); padding-left: 0; }
+.ls-grid .dim { color: var(--muted); }
+@media (max-width: 760px) { .ls-grid { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { #cross.hit .hm, #cross.kill .hm { animation-duration: .01s; } }
 
 #sticks { display: none; position: absolute; inset: 0; }
@@ -449,6 +503,7 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
   <div id="hurt"></div>
   <div id="dmgdir"></div>
   <div id="padlabels"></div>
+  <div id="edgearrows"></div>
   <div id="pickhint" class="pill" hidden><kbd class="for-keys">E</kbd><span class="for-touch">Tap SWAP</span> pick up <b></b></div>
   <div id="overheads"></div>
   <div id="floaters"></div>
@@ -486,9 +541,13 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
   <div class="seg" id="quality-seg"></div>
   <h4>SOUND</h4>
   <div class="row"><label for="tog-mute">Mute (<kbd>M</kbd>)</label><input type="checkbox" id="tog-mute"></div>
-  <div class="row"><label for="tog-assist" title="Nudges your aim onto bots that are close to your crosshair. Never applies against your friend.">Aim assist (vs bots)</label><input type="checkbox" id="tog-assist"></div>
   <div class="row vol"><label for="vol-sfx">Sound effects</label><input type="range" id="vol-sfx" min="0" max="100" step="5"></div>
   <div class="row vol"><label for="vol-music">Music</label><input type="range" id="vol-music" min="0" max="100" step="5"></div>
+  <h4>GAMEPLAY</h4>
+  <div class="row"><label for="tog-assist" title="Nudges your aim onto bots that are close to your crosshair. Never applies against your friend.">Aim assist (vs bots)</label><input type="checkbox" id="tog-assist"></div>
+  <div class="row"><label for="tog-autoaim" title="Rollout only: your gun aims at the nearest enemy and fires by itself (click to take over).">Auto-aim in Rollout</label><input type="checkbox" id="tog-autoaim"></div>
+  <div class="kit-label" style="margin:6px 0 4px">Damage numbers</div><div class="seg" id="dmgnum-seg"></div>
+  <h4>PERFORMANCE</h4>
   <div class="row"><label for="tog-perf">Performance panel (<kbd>F</kbd>)</label><input type="checkbox" id="tog-perf"></div>
   <h4>DEBUG SWITCHES</h4>
   <div class="row"><label for="dbg-ao">Ambient occlusion</label><input type="checkbox" id="dbg-ao"></div>
@@ -503,7 +562,7 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
   <h1 id="title">BALLISTIC<span class="dot">.</span></h1>
   <div id="tagline">Eight toy balls, one arena. First to 20 pops wins.</div>
   <div id="setup">
-    <div><div class="label">SOLO MODE</div><div class="seg" id="solo-seg"></div><div class="seg sub" id="ball-seg" hidden></div></div>
+    <div><div class="label">SOLO MODE</div><div class="seg" id="solo-seg"></div><div class="seg sub" id="ball-seg" hidden></div><div class="seg sub" id="danger-seg" hidden></div></div>
     <div><div class="label">ARENA</div><div class="seg" id="map-seg"></div><div class="seg sub" id="size-seg"></div><div class="seg sub" id="theme-seg"></div></div>
     <div><div class="label">BOTS</div><div class="seg" id="difficulty-seg"></div><div class="seg sub" id="count-seg"></div></div>
   </div>
@@ -517,6 +576,7 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
   </div>
   <div id="menu-links">
     <button class="ghost-btn" id="practice-btn">PRACTICE RANGE</button>
+    <button class="ghost-btn" id="stats-btn">STATS</button>
     <button class="ghost-btn" id="arsenal-btn" aria-expanded="false">THE ARSENAL &#9662;</button>
   </div>
   <div id="best"></div>
@@ -543,6 +603,7 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
       <button class="mode-btn" id="lobby-duel"><b>1v1</b><span>You against your friend. First to 10 pops.</span></button>
       <button class="mode-btn" id="lobby-coop"><b>2 vs bots</b><span>Team up against the bots (3, 5 or 7). First team to 30.</span></button>
       <button class="mode-btn gg" id="lobby-ggduel"><b>Gun Game 1v1</b><span>Climb 10 weapons, 2 pops each. Win with a spikes pop.</span></button>
+      <button class="mode-btn run" id="lobby-run"><b>Rollout</b><span>20 waves of swarms together. Shared coins, your own shop, revive each other.</span></button>
       <button class="mode-btn fort" id="lobby-waves"><b>Hold the Fort</b><span>Survive waves of bots together. Shared lives, a boss every 5th wave.</span></button>
     </div>
     <div class="lobby-opts">
@@ -583,6 +644,11 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
 </div>
 
 <div id="runui" class="screen"></div>
+<div id="lifestats" class="screen">
+  <h1 class="screen-title">YOUR STATS</h1>
+  <div id="lifestats-body"></div>
+  <button class="ghost-btn" id="stats-back">BACK</button>
+</div>
 <div id="toast" class="pill"></div>
 <div id="loading">Inflating balls&hellip;</div>
 

@@ -46,10 +46,16 @@ const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const INTERP_MS = 110;
 
 const STORE = 'ballistic.v1';
+/** Lifetime numbers for the stats page. */
+export interface Life {
+  matches: number; byMode: Record<string, number>; pops: number; deaths: number; dmg: number; time: number; gunPops: Record<string, number>;
+  runs: number; runWins: number; runCoins: number; minionPops: number; bestByBall: Record<string, number>; bestByDanger: Record<string, number>; runDmg: Record<string, number>;
+}
+export const blankLife = (): Life => ({ matches: 0, byMode: {}, pops: 0, deaths: 0, dmg: 0, time: 0, gunPops: {}, runs: 0, runWins: 0, runCoins: 0, minionPops: 0, bestByBall: {}, bestByDanger: {}, runDmg: {} });
 export interface Saved {
   weapon: WeaponId; ability: AbilityId; color: number; difficulty: Difficulty; quality: Quality | 'auto';
   muted: boolean; best?: number; perf?: boolean; nick: string;
-  soloMode: 'solo' | 'gungame' | 'waves' | 'run'; ball: string; runBest?: number; runWins?: number; map: MapChoice; theme: ThemeChoice; arenaSize: ArenaSize; botCount: number; coopBots: number; ffaSkill?: number; bestWave?: number; practiceBest?: number; music?: boolean; sfxVol: number; musicVol: number; records?: { streak?: number; dmg?: number; acc?: number }; aimAssist: boolean; v2?: boolean;
+  soloMode: 'solo' | 'gungame' | 'waves' | 'run'; ball: string; life?: Life; runBest?: number; runWins?: number; danger?: number; dangerMax?: number; autoAim?: boolean; dmgNums?: 'all' | 'big' | 'off'; map: MapChoice; theme: ThemeChoice; arenaSize: ArenaSize; botCount: number; coopBots: number; ffaSkill?: number; bestWave?: number; practiceBest?: number; music?: boolean; sfxVol: number; musicVol: number; records?: { streak?: number; dmg?: number; acc?: number }; aimAssist: boolean; v2?: boolean;
 }
 function load(): Saved {
   let s: Partial<Saved> = {};
@@ -58,7 +64,7 @@ function load(): Saved {
     // v2: Adaptive became the default (once), since it's the one that suits Hold the Fort
     weapon: s.weapon ?? 'shotgun', ability: s.ability ?? 'dash', color: s.color ?? 0, difficulty: (s as any).v2 ? s.difficulty ?? 'adaptive' : 'adaptive',
     quality: s.quality ?? 'auto', muted: !!s.muted, best: s.best, perf: s.perf, nick: s.nick ?? '',
-    soloMode: s.soloMode ?? 'solo', map: s.map && s.map in MAPS ? s.map : 'random', theme: s.theme && s.theme in THEMES ? s.theme : 'toy', ball: s.ball ?? 'classic', runBest: s.runBest, runWins: s.runWins, arenaSize: s.arenaSize ?? 'medium', botCount: s.botCount ?? 7, coopBots: s.coopBots ?? 5, bestWave: s.bestWave, music: s.music ?? true, sfxVol: s.sfxVol ?? 1, aimAssist: s.aimAssist ?? true, musicVol: s.musicVol ?? (s.music === false ? 0 : 0.8), v2: true,
+    soloMode: s.soloMode ?? 'solo', map: s.map && s.map in MAPS ? s.map : 'random', theme: s.theme && s.theme in THEMES ? s.theme : 'toy', ball: s.ball ?? 'classic', runBest: s.runBest, runWins: s.runWins, danger: s.danger ?? 0, dangerMax: s.dangerMax ?? 0, autoAim: s.autoAim ?? false, dmgNums: s.dmgNums ?? 'all', arenaSize: s.arenaSize ?? 'medium', botCount: s.botCount ?? 7, coopBots: s.coopBots ?? 5, bestWave: s.bestWave, music: s.music ?? true, sfxVol: s.sfxVol ?? 1, aimAssist: s.aimAssist ?? true, musicVol: s.musicVol ?? (s.music === false ? 0 : 0.8), v2: true,
   };
 }
 
@@ -107,6 +113,9 @@ export class Game {
   director = new Director();
   /** Rollout (the Brotato-style run), while one is going. */
   run: Run | null = null;
+  private matchStart = 0;
+  /** Rollout danger level for the next run (online: the host's pick, from the offer). */
+  runDanger = 0;
   /** Your numbers this match, for the results screen. */
   ms = { shots: 0, hits: 0, dmg: 0, streak: 0, gunPops: {} as Record<string, number> };
   /** While you're dead the camera watches whoever popped you. */
@@ -233,7 +242,8 @@ export class Game {
     const roster: RosterEntry[] = [{ id: 0, name: 'You', color: COLORS[pc].hex, team: 0, human: true, sk: this.saved.ffaSkill }];
     const cols = COLORS.filter((_, i) => i !== pc);
     const names = [...BOT_NAMES].sort(() => Math.random() - 0.5);
-    const nBots = mode.waves || mode.run ? mode.bots : this.saved.botCount;   // wave slots are fixed; the director decides how many come
+    const nBots = mode.waves || mode.run ? mode.bots : this.saved.botCount;
+    this.runDanger = Math.min(this.saved.danger ?? 0, this.saved.dangerMax ?? 0);   // wave slots are fixed; the director decides how many come
     for (let i = 0; i < nBots; i++) roster.push({ id: i + 1, name: names[i % names.length], color: cols[i % cols.length].hex, team: mode.teams ? 1 : i + 1, human: false });
     this.begin(mode, (Math.random() * 1e9) | 0, roster, 0, this.resolveMap(mode), this.arenaN, this.resolveTheme());
   }
@@ -327,8 +337,9 @@ export class Game {
       // Hold the Fort: the bots wait off-stage until their wave
       if (b.local && !((mode.waves || mode.run) && !b.human)) this.spawn(b, true); else { b.alive = false; b.root.visible = false; b.respawnT = 1e9; }
     }
-    if (mode.run) this.run = new Run(this);
+    if (mode.run) this.run = new Run(this, this.runDanger);
     this.matchT = mode.time; this.countT = 3.2; this.state = 'countdown';
+    this.matchStart = this.clock;
     this.paused = false;
     this.hud.onStart();
     this.r.follow(this.player.x, this.player.z, this.player.x, this.player.z, 0, true);
@@ -345,7 +356,10 @@ export class Game {
       const r = this.run; r.phase = 'over'; this.hud.runUi.close();
       won = r.won || !this.saved.runBest || r.n > this.saved.runBest;
       if (!this.saved.runBest || r.n > this.saved.runBest) this.saved.runBest = r.n;
-      if (r.won) this.saved.runWins = (this.saved.runWins ?? 0) + 1;
+      if (r.won) {
+        this.saved.runWins = (this.saved.runWins ?? 0) + 1;
+        if (r.danger >= (this.saved.dangerMax ?? 0) && r.danger < 5) { this.saved.dangerMax = r.danger + 1; setTimeout(() => this.hud.toast(`Danger ${r.danger + 1} unlocked!`), 1500); }
+      }
       this.save();
     } else if (this.mode.practice) {
       const t = Math.round(this.matchT * 10) / 10, done = this.player.kills >= this.mode.limit;
@@ -359,8 +373,25 @@ export class Game {
     const place = ranked.indexOf(this.player) + 1;
     if (!this.online && !this.mode.waves && !this.mode.practice && !this.mode.run && (!this.saved.best || place < this.saved.best)) { this.saved.best = place; this.save(); }
     this.audio.play(won ? 'win' : 'lose');
+    this.recordLife();
     if (this.online && this.host) this.flushNet(true);
     this.hud.showResult(ranked, place, won);
+  }
+
+  /** Add this match to the lifetime stats. */
+  private recordLife() {
+    const L = this.saved.life ?? (this.saved.life = blankLife()), p = this.player, add = (o: Record<string, number>, k: string, v: number) => { o[k] = (o[k] ?? 0) + v; };
+    L.matches++; add(L.byMode, this.mode.id, 1);
+    L.pops += p.kills; L.deaths += p.deaths; L.dmg += Math.round(this.ms.dmg); L.time += Math.max(0, Math.round(this.clock - this.matchStart));
+    for (const [w, n] of Object.entries(this.ms.gunPops)) add(L.gunPops, w, n);
+    const r = this.run;
+    if (r) {
+      L.runs++; if (r.won) L.runWins++; L.runCoins += r.earned; L.minionPops += r.pops;
+      L.bestByBall[r.ball.id] = Math.max(L.bestByBall[r.ball.id] ?? 0, r.n);
+      L.bestByDanger[String(r.danger)] = Math.max(L.bestByDanger[String(r.danger)] ?? 0, r.n);
+      for (const [k, v] of r.dmgBy) add(L.runDmg, k, Math.round(v));
+    }
+    this.save();
   }
 
   teamScores() {
@@ -552,7 +583,7 @@ export class Game {
     if (b.reloadT > 0 || b.cool > 0) return;
     if (w.semi && b.isPlayer) b.semiLock = true;
     if (b.ammo <= 0) { this.reload(b); return; }
-    b.ammo--; b.cool = 1 / (w.rate * (this.run && b.isPlayer ? this.run.rateMul : 1)); b.spawnShield = 0;
+    b.ammo--; b.cool = 1 / (w.rate * (this.run && b.isPlayer ? this.run.gunRate(b.weapon) : 1)); b.spawnShield = 0;
     this.spawnShots(b);
     b.vx -= b.aimX * w.recoil; b.vz -= b.aimZ * w.recoil;
     if (b.ammo <= 0) this.reload(b);
@@ -566,7 +597,7 @@ export class Game {
     let mx = b.x + b.aimX * 0.85, mz = b.z + b.aimZ * 0.85;
     if (this.arena.raycast(b.x, b.z, mx, mz, sy) >= 0) { mx = b.x; mz = b.z; }
     if (b === this.player) this.ms.shots += w.kind === 'rail' ? 1 : w.pellets;
-    const rangeK = this.run && b.isPlayer ? this.run.rangeMul : 1;
+    const rangeK = this.run && b.isPlayer ? this.run.gunRange(b.weapon) : 1;
     if (w.kind === 'rail') { this.fireRail(b, mx, sy, mz); }
     else if (w.kind === 'zap') { this.fireZap(b, mx, sy, mz, undefined, w.range! * rangeK); }
     else for (let i = 0; i < w.pellets; i++) {
@@ -619,17 +650,18 @@ export class Game {
       const score = d + Math.abs(da) * 6;
       if (score < best && sees(x0, z0, y, v.x, v.z)) { best = score; first = v; }
     }
-    if (src !== 'turret') this.audio.play('lightning', b.x, b.z, b.isPlayer ? 1 : 0.7);
+    if (!src.startsWith('turret')) this.audio.play('lightning', b.x, b.z, b.isPlayer ? 1 : 0.7);
     if (!first) {
       // nothing in reach: a short fizzle into the air
       const a = aim + (Math.random() - 0.5) * 0.5, l = 2.5 + Math.random() * 1.5;
       this.fx.bolt(x0, y, z0, x0 + Math.cos(a) * l, y + (Math.random() - 0.3) * 0.4, z0 + Math.sin(a) * l, w.color, 0.7);
       return;
     }
-    if (b === this.player && src !== 'turret') this.ms.hits++;
+    if (b === this.player && !src.startsWith('turret')) this.ms.hits++;
     const hitList: ZT[] = [first];
     let cur = first;
-    for (let i = 0; i < ZAP.chains; i++) {
+    const chains = ZAP.chains + (this.run && b === this.player ? this.run.extraChains(src) : 0);
+    for (let i = 0; i < chains; i++) {
       let next: ZT | null = null, nd = ZAP.hop;
       for (const v of cands) {
         if (hitList.includes(v) || Math.abs(v.y - cur.y) > 1.4) continue;
@@ -936,7 +968,7 @@ export class Game {
     if (!att.local || !v.alive || !this.canDamage(att, v)) return;
     if (this.mode.waves && !att.human && v.human) dmg *= this.director.botDamage(this.wv.n);
     if (this.run) {
-      if (att === this.player && v !== att) { dmg *= this.run.outMul(att, src); this.run.lifesteal(); }
+      if (att === this.player && v !== att) { dmg *= this.run.outMul(att, src); this.run.lifesteal(); if (v.spawnShield <= 0) this.run.record(src, Math.min(dmg, Math.max(0, v.hp))); }
       else if (!att.human && v.human) dmg *= this.run.enemyMul();
     }
     if (att === this.player && v !== att && v.spawnShield <= 0) this.ms.dmg += dmg * (v.abT > 0 && v.ability === 'bubble' ? 0.3 : 1);
@@ -1006,6 +1038,7 @@ export class Game {
     }
     if (k === this.player && k !== v) { const gp = cause in WEAPONS ? cause : k.weapon; this.ms.gunPops[gp] = (this.ms.gunPops[gp] ?? 0) + 1; this.ms.streak = Math.max(this.ms.streak, k.streak); }
     if (v === this.player) this.killCam = k && k !== v ? k.id : -1;
+    if (v === this.player && this.run?.coop) this.killCam = this.babos.find(x => x.human && !x.isPlayer)?.id ?? -1;   // downed: watch your teammate
     if (v.isPlayer) this.hud.onPlayerDeath(k && k !== v ? k : null, cause);
     if (v.gy < 0.1) this.arena.splat(v.x, v.z, 1.1 + Math.random() * 0.4, v.color);
     this.audio.play('pop', v.x, v.z);
@@ -1017,7 +1050,10 @@ export class Game {
     }
     for (let i = 0; i < 6; i++) this.fx.puff(v.x + (Math.random() - 0.5), 0.5 + v.y, v.z + (Math.random() - 0.5), 0.35, 0.6);
     this.checkLimit();
-    if (this.run && v === this.player && this.state === 'playing') { this.run.phase = 'over'; setTimeout(() => this.end(`Swarmed on wave ${this.run?.n ?? 0}`), 900); }
+    if (this.run && v.human && this.state === 'playing') {
+      if (this.run.coop) this.run.onHumanDown(v);
+      else if (v === this.player) { this.run.phase = 'over'; setTimeout(() => this.end(`Swarmed on wave ${this.run?.n ?? 0}`), 900); }
+    }
   }
 
   /**
@@ -1231,7 +1267,7 @@ export class Game {
   private go() {
     if (this.state !== 'countdown') return;
     this.state = 'playing'; this.audio.play('go'); this.hud.banner('ROLL!', false, 0.9);
-    if (this.run) this.run.startWave(1);
+    if (this.run?.host) this.run.startWave(1);
   }
 
   /** Remote balls: fire cosmetic shots at their weapon's rate while their trigger is held. */
@@ -1319,7 +1355,7 @@ export class Game {
       }
       // Rollout: the player's shots also hit minions
       let mv: import('./run').Minion | null = null;
-      if (this.run && !s.cosmetic && s.owner === this.player.id) { const h = this.run.raycast(s.x, s.z, nx, nz); if (h && (t < 0 || h.t < t)) { t = h.t; victim = null; mv = h.m; } }
+      if (this.run && ((s.cosmetic && shooter?.human) || s.owner === this.player.id)) { const h = this.run.raycast(s.x, s.z, nx, nz); if (h && (t < 0 || h.t < t)) { t = h.t; victim = null; mv = h.m; } }
       const src = s.src ?? s.w, mul = s.mul ?? 1;
       const hx = t >= 0 ? s.x + sdx * t : nx, hz = t >= 0 ? s.z + sdz * t : nz;
       const l = Math.hypot(s.vx, s.vz);
@@ -1351,7 +1387,7 @@ export class Game {
             const ex = hx - (s.vx / l) * back, ez = hz - (s.vz / l) * back;
             if (victim && shooter) this.hit(shooter, victim, w.damage * mul, (s.vx / l) * w.knock, (s.vz / l) * w.knock, 0, 0, src);
             else if (mv && shooter && this.run) this.run.damage(shooter, mv, w.damage * mul, (s.vx / l) * w.knock, (s.vz / l) * w.knock, src);
-            const blasted = this.explode(ex, ez, s.owner, w.splash!.radius * (s.src === 'turret' ? 0.7 : 1), w.splash!.damage * mul, w.splash!.knock, true, s.y - 0.55, src);
+            const blasted = this.explode(ex, ez, s.owner, w.splash!.radius * (s.src?.startsWith('turret') ? 0.7 : 1) * (this.run && s.owner === this.player.id ? this.run.blastMul(src) : 1), w.splash!.damage * mul, w.splash!.knock, true, s.y - 0.55, src);
             if (s.owner === this.player.id && !s.src && (victim || mv || blasted)) this.ms.hits++;
             if (this.online) this.net.send({ k: 'boom', o: s.owner, x: r2(ex), z: r2(ez), r: w.splash!.radius, y: r2(s.y - 0.55) });
           }
@@ -1584,8 +1620,9 @@ export class Game {
     const cols = COLORS.filter((_, i) => i !== myC && i !== theirC);
     const names = [...BOT_NAMES].sort(() => Math.random() - 0.5);
     const nBots = modeId === 'coop' ? this.saved.coopBots : mode.bots;
+    this.runDanger = Math.min(this.saved.danger ?? 0, this.saved.dangerMax ?? 0);
     for (let i = 0; i < nBots; i++) roster.push({ id: i + 2, name: names[i], color: cols[i % cols.length].hex, team: mode.teams ? 1 : i + 2, human: false });
-    const offer: StartOffer = { e: (Math.random() * 1e9) | 0, mode: modeId, seed: (Math.random() * 1e9) | 0, guest: friend.peer, roster, diff: this.saved.difficulty, map: this.resolveMap(mode), n: this.arenaN, th: this.resolveTheme() };
+    const offer: StartOffer = { e: (Math.random() * 1e9) | 0, mode: modeId, seed: (Math.random() * 1e9) | 0, guest: friend.peer, roster, diff: this.saved.difficulty, map: this.resolveMap(mode), n: this.arenaN, th: this.resolveTheme(), ...(mode.run ? { dg: this.runDanger } : {}) };
     this.offer = offer; this.lastMode = modeId;
     this.net.clearMatch();
     this.net.set({ start: offer });
@@ -1607,6 +1644,7 @@ export class Game {
       this.net.clearMatch();
       this.online = true; this.host = false; this.partner = p.peer; this.epoch = o.e;
       this.lastMode = o.mode;
+      this.runDanger = o.dg ?? 0;
       this.begin(MODES[o.mode], o.seed, o.roster, 1, (o.map || 'random') as MapId, o.n ?? MODES[o.mode].size, (o.th && o.th in LOOKS ? o.th : 'toy') as ThemeId);
       return;
     }
@@ -1621,6 +1659,7 @@ export class Game {
       case 'nade': if (b(e.o) && !b(e.o).local) this.addNade(e.o, e.x, e.y, e.z, e.vx, e.vy, e.vz, true); break;
       case 'boom': {
         if (b(e.o)?.local) break;
+        if (e.m === 3) { this.fx.explosion(e.x, e.z, e.r, e.y ?? 0); this.audio.play('boom', e.x, e.z, 0.8); break; }   // a Rollout bomber
         if (e.m === 2) {
           let best: Nuke | null = null, bd = 4;
           for (const n of this.nukes) if (n.owner === e.o) { const d = Math.hypot(n.x - e.x, n.z - e.z); if (d < bd) { bd = d; best = n; } }
@@ -1634,6 +1673,10 @@ export class Game {
         this.explode(e.x, e.z, e.o, e.r, 0, 0, false, e.y ?? 0);
         break;
       }
+      case 'mh': { const guest = this.babos.find(x => x.human && !x.isPlayer); if (this.run && this.host && guest) this.run.applyGuestHits(guest, e.h); break; }
+      case 'rc': if (this.run && !this.host) this.run.credit(e.v); break;
+      case 'rr': if (this.run && this.host) this.run.onPartnerReady(e.n); break;
+      case 'rk': if (this.run && !this.host) this.run.gotCrate(); break;
       case 'pick': if (e.d) { const i = this.pickups.findIndex(p => p.drop === e.d); if (i >= 0) this.takePickup(i); } else this.takePickup(e.i); break;
     }
   }
@@ -1646,11 +1689,12 @@ export class Game {
         Math.round(Math.atan2(b.aimZ, b.aimX) * 100), Math.max(0, Math.round(b.hp)), b.alive ? 1 : 0, WIDS.indexOf(b.weapon),
         b.fire && b.alive ? 1 : 0, b.reloadT > 0 || b.ammo <= 0 ? 1 : 0, AIDS.indexOf(b.ability), Math.round(Math.max(0, b.abT) * 100), b.abCount, b.spawnShield > 0 ? 1 : 0, b.burnT > 0 ? 1 : 0]);
     }
-    return { t: Math.round(performance.now()), e: this.epoch, b: ents };
+    return { t: Math.round(performance.now()), e: this.epoch, b: ents, ...(this.run ? { ru: this.run.loadout(), rv: Math.round(this.run.reviveProg * 100) / 100 } : {}) };
   }
 
   private onSnapshot(from: string, s: any, offset: number) {
     if (!this.online || s.e !== this.epoch || from !== this.partner) return;
+    if (this.run) { const mate = this.babos.find(x => x.human && !x.isPlayer); if (mate) { if (s.ru) this.run.remoteLoadout(mate, s.ru); if (typeof s.rv === 'number') this.run.setRemoteRevive(mate.id, s.rv); } }
     this.peerOffset.set(from, offset);
     for (const a of s.b as number[][]) {
       const b = this.babos[a[0]]; if (!b || b.local) continue;
@@ -1660,6 +1704,7 @@ export class Game {
         // (re)spawned: snap there
         b.net = []; b.x = sample.x; b.z = sample.z; b.alive = true; b.root.visible = true; b.hp = a[7];
         if (this.state === 'playing') this.spawnFx(b);
+        this.run?.onRemoteRevive(b.id);
       } else if (!alive && b.alive) { b.alive = false; b.root.visible = false; }
       if (b.net.length && s.t <= b.net[b.net.length - 1].t) continue;
       b.net.push(sample); if (b.net.length > 30) b.net.shift();
@@ -1685,6 +1730,7 @@ export class Game {
       if (tier !== b.tier) { const up = tier > b.tier; b.tier = tier; if (b.local && b.alive) setWeapon(b, LADDER[tier]); if (up && b.isPlayer) this.onLevelUp(b); }
     });
     if (this.mode.waves && h.w) this.mirrorWaves(h.w);
+    if (this.run && h.r) this.run.applyNet(h.r);
     if (h.f) { h.f.forEach((v, id) => { if (v > -999) this.ffa.mirror(id, v / 100); }); this.saveFfa(); }
     if (h.st === 'p' && this.state === 'countdown') this.go();
     if (h.st === 'o' && this.state !== 'over') this.end();
@@ -1735,8 +1781,13 @@ export class Game {
       k: this.babos.map(b => b.kills), d: this.babos.map(b => b.deaths),
       ...(this.ffa.active ? { f: this.ffa.ratings(this.babos.length) } : {}),
       ...(this.mode.gun ? { g: this.babos.map(b => b.won ? 99 : b.tier * 10 + b.tierKills) } : {}),
+      ...(this.run ? { r: this.run.netState() } : {}),
       ...(this.mode.waves ? { w: [this.wv.n, this.wv.lives, Math.round(this.wv.breakT * 10), this.wv.queue + this.babos.filter(b => !b.human && b.alive).length, this.wv.boss, [...this.wv.out].reduce((m, id) => m | (1 << id), 0), Math.round(this.director.skill * 100), this.director.adaptive ? 1 : 0, this.director.trend, this.babos[this.wv.boss]?.maxHp ?? 0] } : {}),
     } : null;
+    if (this.run) {
+      if (this.host) { const v = this.run.takeCoinCredit(); if (v > 0) this.net.send({ k: 'rc', v }); }
+      else { const hits = this.run.takeHits(); if (hits.length) this.net.send({ k: 'mh', h: hits }); }
+    }
     this.net.flush(this.snapshot(), h);
     void force;
   }
@@ -1772,7 +1823,7 @@ export class Game {
     const t0 = performance.now();
     const inMatch = this.state === 'countdown' || this.state === 'playing' || this.state === 'over';
     // online matches keep running while the pause menu is open
-    const simulate = inMatch && (!this.paused || this.online) && !(this.run && (this.run.phase === 'shop' || this.run.phase === 'levelup'));
+    const simulate = inMatch && (!this.paused || this.online) && !(this.run && (this.run.phase === 'shop' || this.run.phase === 'levelup' || this.run.phase === 'won' || this.run.phase === 'crate') && !this.online);
     if (simulate) {
       if (this.online) this.interpolateRemotes();
       this.acc += raw;

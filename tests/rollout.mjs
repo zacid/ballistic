@@ -41,7 +41,7 @@ console.log('after wave 1:', JSON.stringify(await st()));
 await p.waitForTimeout(400);
 await p.screenshot({ path: `${shots}/rollout-levelup.png` });
 // pick level-ups by pressing 1, until the shop
-for (let i = 0; i < 6; i++) { const ph = await p.evaluate(() => window.__game.run.phase); if (ph !== 'levelup') break; await p.keyboard.press('1'); }
+for (let i = 0; i < 8; i++) { const ph = await p.evaluate(() => window.__game.run.phase); if (ph !== 'levelup' && ph !== 'crate') break; await p.keyboard.press('1'); }
 console.log('shop:', JSON.stringify(await p.evaluate(() => { const r = window.__game.run; return { phase: r.phase, offers: r.offers.map(o => `${o.kind}:${o.kind === 'item' ? o.item.name : o.kind === 'turret' ? o.turret.name : o.w} T${o.tier + 1} $${o.price}`), reroll: r.rerollCost, mats: r.mats }; })));
 await p.waitForTimeout(300);
 await p.screenshot({ path: `${shots}/rollout-shop.png` });
@@ -53,7 +53,7 @@ for (let w = 2; w <= 5; w++) {
   const s = await st();
   console.log(`after wave ${w}:`, JSON.stringify(s));
   if (s.state !== 'playing') break;
-  await p.evaluate(() => { const g = window.__game, r = g.run; while (r.phase === 'levelup') r.pickLevel(0); r.mats += 60;
+  await p.evaluate(() => { const g = window.__game, r = g.run; while (r.phase === 'crate' || r.phase === 'levelup') { if (r.phase === 'crate') r.openCrate(true); else r.pickLevel(0); } r.mats += 60;
     // buy the cheapest turret or item each shop
     let best = -1, bp = 1e9; r.offers.forEach((o, i) => { if (!o.sold && o.price < bp && (o.kind !== 'turret' || r.turrets.length < 4)) { bp = o.price; best = i; } });
     if (best >= 0) r.buy(best); r.nextWave(); });
@@ -70,7 +70,7 @@ await p.screenshot({ path: `${shots}/rollout-boss.png` });
 const end = await p.evaluate(() => { const g = window.__game, r = g.run, bs = g.babos[r.bossId]; if (bs) g.applyDamage(bs, 1e5, g.player.id, 0, 0); for (let i = 0; i < 60; i++) g.step(1 / 120); return { phase: r.phase, wave: r.n, state: g.state }; });
 console.log('after boss:', JSON.stringify(end));
 // die: the run ends with a results screen
-const dead = await p.evaluate(async () => { const g = window.__game, r = g.run; delete r.incoming; while (r.phase === 'levelup') r.pickLevel(0); r.nextWave(); g.applyDamage(g.player, 1e5, -1, 0, 0, 0, 0, 'swarm'); for (let i = 0; i < 240; i++) g.step(1 / 120); await new Promise(res => setTimeout(res, 1200)); return { state: g.state, title: document.getElementById('result-title').textContent, sub: document.getElementById('result-sub').textContent, best: g.saved.runBest }; });
+const dead = await p.evaluate(async () => { const g = window.__game, r = g.run; delete r.incoming; while (r.phase === 'crate' || r.phase === 'levelup') { if (r.phase === 'crate') r.openCrate(true); else r.pickLevel(0); } r.nextWave(); g.applyDamage(g.player, 1e5, -1, 0, 0, 0, 0, 'swarm'); for (let i = 0; i < 240; i++) g.step(1 / 120); await new Promise(res => setTimeout(res, 1200)); return { state: g.state, title: document.getElementById('result-title').textContent, sub: document.getElementById('result-sub').textContent, best: g.saved.runBest }; });
 console.log('death:', JSON.stringify(dead));
 console.log('errors:', errs.length ? errs : 'none');
 await b.close();

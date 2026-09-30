@@ -140,7 +140,7 @@ export const MODES: Record<ModeId, ModeDef> = {
   gungame: { id: 'gungame', name: 'Gun Game', blurb: 'Every pop moves you up a weapon. Win with a spikes kill.', bots: 7, limit: 8, time: 480, teams: false, size: 32, online: false, gun: true, perTier: 1 },
   waves: { id: 'waves', name: 'Hold the Fort', blurb: 'Defend the keep against waves of bots. A boss every 5th wave.', bots: 8, limit: 0, time: 0, teams: true, size: 30, online: true, map: 'fort', waves: true },
   practice: { id: 'practice', name: 'Practice range', blurb: 'Pop 20 target balls as fast as you can. They never shoot back.', bots: 6, limit: 20, time: 0, teams: false, size: 22, online: false, practice: true },
-  run: { id: 'run', name: 'Rollout', blurb: 'Survive 20 waves of swarms. Coins buy guns, items and turrets that fire by themselves.', bots: 4, limit: 0, time: 0, teams: true, size: 30, online: false, map: 'open', run: true },
+  run: { id: 'run', name: 'Rollout', blurb: 'Survive 20 waves of swarms. Coins buy guns, items and turrets that fire by themselves.', bots: 4, limit: 0, time: 0, teams: true, size: 30, online: true, map: 'open', run: true },
   ggduel: { id: 'ggduel', name: 'Gun Game 1v1', blurb: 'Climb the weapon ladder: 2 pops per weapon, win with spikes.', bots: 0, limit: 8, time: 480, teams: false, size: 22, online: true, gun: true, perTier: 2 },
 };
 export const MAPS = {

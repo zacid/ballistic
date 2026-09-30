@@ -95,24 +95,24 @@ export const ITEMS: ItemDef[] = [
   { id: 'heart', name: 'Spare Heart', tier: 3, mods: { maxHp: 40, regen: 3 }, max: 1 },
   { id: 'gearbox', name: 'Gearbox', tier: 3, mods: { turretDmg: 35, turretRate: 25 }, max: 1 },
 ];
-export const ITEM_PRICE = [14, 28, 50, 90];
+export const ITEM_PRICE = [12, 26, 48, 88];
 
 // ---------- turrets ----------
 /** A bolt-on gun: fires by itself at the nearest enemy in range. Damage and rate are at tier 1. */
 export interface TurretDef { w: WeaponId; name: string; rate: number; dmg: number; range: number; price: number; pellets?: number; spread?: number; speed?: number; splash?: number }
 export const TURRETS: TurretDef[] = [
-  { w: 'pistol', name: 'Pea Turret', rate: 2.2, dmg: 8, range: 8, price: 18 },
-  { w: 'chaingun', name: 'Buzz Turret', rate: 6, dmg: 3.5, range: 7, price: 24, spread: 0.14 },
-  { w: 'shotgun', name: 'Scatter Turret', rate: 0.8, dmg: 5, range: 4.2, price: 24, pellets: 6, spread: 0.5 },
-  { w: 'bouncer', name: 'Pinball Turret', rate: 1.4, dmg: 9, range: 7, price: 26 },
-  { w: 'flamethrower', name: 'Torch Turret', rate: 10, dmg: 2.5, range: 3.4, price: 28 },
-  { w: 'lightning', name: 'Zap Turret', rate: 1.8, dmg: 7, range: 5.5, price: 32 },
-  { w: 'rocket', name: 'Rocket Pod', rate: 0.45, dmg: 10, range: 9, price: 38, splash: 22 },
+  { w: 'pistol', name: 'Pea Turret', rate: 2.2, dmg: 8, range: 8, price: 15 },
+  { w: 'chaingun', name: 'Buzz Turret', rate: 6, dmg: 3.5, range: 7, price: 20, spread: 0.14 },
+  { w: 'shotgun', name: 'Scatter Turret', rate: 0.8, dmg: 5, range: 4.2, price: 20, pellets: 6, spread: 0.5 },
+  { w: 'bouncer', name: 'Pinball Turret', rate: 1.4, dmg: 9, range: 7, price: 22 },
+  { w: 'flamethrower', name: 'Torch Turret', rate: 10, dmg: 2.5, range: 3.4, price: 24 },
+  { w: 'lightning', name: 'Zap Turret', rate: 1.8, dmg: 7, range: 5.5, price: 27 },
+  { w: 'rocket', name: 'Rocket Pod', rate: 0.45, dmg: 10, range: 9, price: 32, splash: 22 },
 ];
 /** Main guns you can buy (the one you aim). */
 export const MAIN_GUNS: { w: WeaponId; price: number }[] = [
-  { w: 'pistol', price: 14 }, { w: 'shotgun', price: 24 }, { w: 'chaingun', price: 26 }, { w: 'bouncer', price: 24 },
-  { w: 'flamethrower', price: 28 }, { w: 'lightning', price: 30 }, { w: 'rocket', price: 40 }, { w: 'railgun', price: 44 },
+  { w: 'pistol', price: 12 }, { w: 'shotgun', price: 20 }, { w: 'chaingun', price: 22 }, { w: 'bouncer', price: 20 },
+  { w: 'flamethrower', price: 24 }, { w: 'lightning', price: 26 }, { w: 'rocket', price: 34 }, { w: 'railgun', price: 38 },
 ];
 
 // ---------- ball types ----------
@@ -126,7 +126,7 @@ export const BALLS: BallType[] = [
 ];
 
 // ---------- minions ----------
-export type MinionKind = 'roller' | 'dasher' | 'spitter' | 'tank' | 'splitter' | 'mini';
+export type MinionKind = 'roller' | 'dasher' | 'spitter' | 'tank' | 'splitter' | 'mini' | 'bomber' | 'healer' | 'shielder';
 export interface MinionDef { hp: number; speed: number; dmg: number; r: number; color: number; coins: number; from: number; weight: number; mass: number }
 export const MINIONS: Record<MinionKind, MinionDef> = {
   roller: { hp: 10, speed: 3.1, dmg: 8, r: 0.32, color: 0xff5a6e, coins: 1, from: 1, weight: 10, mass: 1 },
@@ -135,4 +135,76 @@ export const MINIONS: Record<MinionKind, MinionDef> = {
   tank: { hp: 48, speed: 1.9, dmg: 15, r: 0.58, color: 0x3f9d6a, coins: 3, from: 7, weight: 2, mass: 4 },
   splitter: { hp: 18, speed: 2.8, dmg: 9, r: 0.42, color: 0xffd23a, coins: 1, from: 9, weight: 3, mass: 1.5 },
   mini: { hp: 4, speed: 4.4, dmg: 5, r: 0.2, color: 0xffe98a, coins: 0, from: 99, weight: 0, mass: 0.5 },
+  // rolls up, stops, fizzes, and blows up; pop one first and it takes its neighbours with it
+  bomber: { hp: 12, speed: 3.5, dmg: 24, r: 0.34, color: 0xff4d2e, coins: 1, from: 6, weight: 3, mass: 1 },
+  // hangs back and patches up the minions around it every couple of seconds
+  healer: { hp: 20, speed: 2.6, dmg: 6, r: 0.36, color: 0x7dffb0, coins: 2, from: 8, weight: 2, mass: 1 },
+  // a shield on its front shrugs off most of a hit from ahead; flank it, burn it, or blow it up
+  shielder: { hp: 30, speed: 2.3, dmg: 10, r: 0.44, color: 0x6f8fb8, coins: 2, from: 11, weight: 2, mass: 2 },
 };
+/** Bombers: how close they get before lighting the fuse, the fuse, and the blast. */
+export const BOMBER = { trigger: 1.7, fuse: 0.75, radius: 2.3, chain: 32 };
+export const HEALER = { every: 2.2, radius: 3.8, heal: 0.25 };
+/** Shielders block this much of a hit from the front (within about 70 degrees); blasts, fire and thorns go round it. */
+export const SHIELD = { block: 0.7, arc: 1.2 };
+
+// ---------- special waves ----------
+export type SpecialId = 'horde' | 'elites' | 'gold' | 'bombers';
+export const SPECIALS: Record<SpecialId, { name: string; blurb: string; from: number }> = {
+  horde: { name: 'HORDE', blurb: 'Twice as many, half as tough', from: 3 },
+  gold: { name: 'GOLD RUSH', blurb: 'Every pop drops double coins', from: 3 },
+  elites: { name: 'ELITE RUSH', blurb: 'Gun bots, lots of them', from: 6 },
+  bombers: { name: 'BOMBER NIGHT', blurb: 'They explode. Keep your distance', from: 7 },
+};
+/** Special waves land on these (never a boss wave), plus every third wave in endless. */
+export const SPECIAL_WAVES = [4, 7, 12, 16, 18];
+
+// ---------- weapon classes (main gun + turrets; more of a class = bigger bonus for that class) ----------
+export type ClassId = 'precision' | 'spray' | 'explosive' | 'elemental';
+export const WEAPON_CLASS: Partial<Record<WeaponId, ClassId>> = {
+  pistol: 'precision', railgun: 'precision', bouncer: 'precision',
+  chaingun: 'spray', shotgun: 'spray',
+  rocket: 'explosive',
+  flamethrower: 'elemental', lightning: 'elemental',
+};
+export interface ClassBonus { dmg: number; rate: number; range: number; radius: number; chains: number; text: string }
+export const CLASSES: Record<ClassId, { name: string; color: number; tiers: ClassBonus[] }> = {
+  precision: { name: 'Precision', color: 0x8fd0ff, tiers: [
+    { dmg: 0.15, rate: 0, range: 0.1, radius: 0, chains: 0, text: '+15% damage, +10% range' },
+    { dmg: 0.3, rate: 0, range: 0.2, radius: 0, chains: 0, text: '+30% damage, +20% range' },
+    { dmg: 0.5, rate: 0, range: 0.3, radius: 0, chains: 0, text: '+50% damage, +30% range' },
+  ] },
+  spray: { name: 'Spray', color: 0xffd23a, tiers: [
+    { dmg: 0, rate: 0.15, range: 0, radius: 0, chains: 0, text: '+15% fire rate' },
+    { dmg: 0.1, rate: 0.3, range: 0, radius: 0, chains: 0, text: '+30% fire rate, +10% damage' },
+    { dmg: 0.2, rate: 0.45, range: 0, radius: 0, chains: 0, text: '+45% fire rate, +20% damage' },
+  ] },
+  explosive: { name: 'Explosive', color: 0xff6a3d, tiers: [
+    { dmg: 0.1, rate: 0, range: 0, radius: 0.25, chains: 0, text: '+25% blast radius, +10% damage' },
+    { dmg: 0.2, rate: 0, range: 0, radius: 0.45, chains: 0, text: '+45% blast radius, +20% damage' },
+    { dmg: 0.35, rate: 0, range: 0, radius: 0.6, chains: 0, text: '+60% blast radius, +35% damage' },
+  ] },
+  elemental: { name: 'Elemental', color: 0xff9aff, tiers: [
+    { dmg: 0.15, rate: 0, range: 0, radius: 0, chains: 1, text: 'Lightning chains once more, +15% damage' },
+    { dmg: 0.3, rate: 0, range: 0.1, radius: 0, chains: 2, text: 'Two more chains, +30% damage, +10% range' },
+    { dmg: 0.45, rate: 0, range: 0.2, radius: 0, chains: 3, text: 'Three more chains, +45% damage, +20% range' },
+  ] },
+};
+/** Loot crates: dropped by elites (sometimes), bosses (always) and, rarely, minions. Opened after the wave. */
+export const CRATES = { elite: 0.4, boss: 2, minion: 0.008 };
+
+// ---------- danger levels (win a run to unlock the next) ----------
+export const DANGER = [
+  { name: 'Danger 0', blurb: 'The standard run.' },
+  { name: 'Danger 1', blurb: 'Minions hit 10% harder and there are a few more of them.' },
+  { name: 'Danger 2', blurb: 'Tougher minions, and an extra elite from wave 6.' },
+  { name: 'Danger 3', blurb: 'Faster, tougher swarms; the shop is 10% dearer.' },
+  { name: 'Danger 4', blurb: 'Elites from wave 2, and they aim better.' },
+  { name: 'Danger 5', blurb: 'Everything at once. Good luck.' },
+];
+/** Per danger level: minion hp, damage, count and speed multipliers, extra elites, and shop prices. */
+export function dangerMods(d: number) {
+  return { hp: 1 + 0.14 * d, dmg: 1 + 0.1 * d, count: 1 + 0.08 * d, speed: 1 + 0.035 * d, elites: d >= 2 ? 1 : 0, eliteFrom: d >= 4 ? 2 : 4, price: 1 + 0.05 * d, aim: 0.03 * d };
+}
+/** Two players: more and tougher minions, a tankier boss. */
+export const COOP = { count: 1.6, hp: 1.25, boss: 1.5, reviveT: 3, reviveR: 1.6 };

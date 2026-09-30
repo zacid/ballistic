@@ -56,7 +56,7 @@ export class Input {
     const k = e.key.toLowerCase();
     if ((e.target as HTMLElement)?.tagName === 'INPUT' && (e.target as HTMLInputElement).type === 'text' && k !== 'escape') return;
     if (k === 'tab') { e.preventDefault(); this.g.hud.scoreboard(down && this.g.state !== 'menu'); return; }
-    const shopping = !!this.g.run && (this.g.run.phase === 'shop' || this.g.run.phase === 'levelup');
+    const shopping = !!this.g.run && (this.g.run.phase === 'shop' || this.g.run.phase === 'levelup' || this.g.run.phase === 'won' || this.g.run.phase === 'crate');
     if (down && !e.repeat && !shopping) {
       if (k === 'p' || k === 'escape') { if (this.g.state === 'playing' || this.g.state === 'countdown') this.g.hud.togglePause(); }
       if (k === 'f') this.g.hud.setPerf(!this.g.saved.perf);
@@ -92,6 +92,18 @@ export class Input {
     return out;
   }
 
+  /** Rollout's optional auto-aim: point the main gun at the nearest enemy in range and fire. */
+  private autoAim(b: Babo) {
+    const g = this.g, r = g.run!, w = WEAPONS[b.weapon];
+    const R = (w.range ?? w.speed * w.life) * r.rangeMul * 0.95;
+    let best: { x: number; z: number } | null = null, bd = R;
+    for (const m of r.near(b.x, b.z, R)) { const d = Math.hypot(m.x - b.x, m.z - b.z); if (d < bd && g.arena.raycast(b.x, b.z, m.x, m.z, b.y + 0.55, false, CLIMB) < 0) { bd = d; best = m; } }
+    for (const o of g.babos) { if (o.human || !o.alive) continue; const d = Math.hypot(o.x - b.x, o.z - b.z); if (d < bd && g.arena.raycast(b.x, b.z, o.x, o.z, b.y + 0.55, true, CLIMB) < 0) { bd = d; best = o; } }
+    if (!best) return;
+    const dx = best.x - b.x, dz = best.z - b.z, l = Math.hypot(dx, dz) || 1;
+    b.aimX = dx / l; b.aimZ = dz / l; b.aimDist = l; b.fire = true; b.semiLock = false;
+  }
+
   apply(b: Babo) {
     const g = this.g;
     if (g.paused) { b.moveX = b.moveZ = 0; b.fire = false; return; }
@@ -113,6 +125,7 @@ export class Input {
     this.assist(b);
     b.aimDist = l;
     b.fire = this.touch ? this.touchAim.active : this.mouseDown;
+    if (g.run && g.saved.autoAim && !b.fire) this.autoAim(b);
     if (this.abilityQueued) { b.wantAbility = true; this.abilityQueued = false; }
     // reloading an empty clip automatically; tapping fire while reloading does nothing
     if (b.fire && b.ammo <= 0 && b.reloadT <= 0) g.reload(b);

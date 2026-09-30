@@ -18,11 +18,17 @@ export type NetEvent =
   | { k: 'die'; v: number; by: number; w?: string }
   | { k: 'nade'; o: number; x: number; y: number; z: number; vx: number; vy: number; vz: number }
   | { k: 'boom'; o: number; x: number; z: number; r: number; y?: number; m?: number }
-  | { k: 'pick'; i: number; d?: string };
+  | { k: 'pick'; i: number; d?: string }
+  // Rollout co-op: the guest's hits on minions (flat [id, dmg*10, kx*10, kz*10, flag]...), the guest is
+  // ready for wave n, and coins the host picked up (they pay both players)
+  | { k: 'mh'; h: number[] }
+  | { k: 'rr'; n: number }
+  | { k: 'rc'; v: number }
+  | { k: 'rk'; n: number };   // the guest rolled over a loot crate
 
-export interface StartOffer { e: number; mode: ModeId; seed: number; guest: string; roster: RosterEntry[]; diff: string; map?: string; n?: number; th?: string }
+export interface StartOffer { e: number; mode: ModeId; seed: number; guest: string; roster: RosterEntry[]; diff: string; map?: string; n?: number; th?: string; dg?: number }
 export interface RosterEntry { id: number; name: string; color: number; team: number; human: boolean; peer?: string; sk?: number }
-export interface HostState { e: number; st: 'c' | 'p' | 'o'; t: number; k: number[]; d: number[]; g?: number[]; w?: number[]; f?: number[] }
+export interface HostState { e: number; st: 'c' | 'p' | 'o'; t: number; k: number[]; d: number[]; g?: number[]; w?: number[]; f?: number[]; r?: any }
 
 export interface Peerish { peer: string; isMe: boolean; sameTab: boolean; presence: any; updatedAt: number }
 
@@ -126,12 +132,13 @@ export class Net {
   flush(snapshot: unknown, host: HostState | null) {
     if (!this.room) return;
     const now = performance.now();
-    while (this.log.length && (now - this.log[0].t > 1500 || this.log.length > 36)) this.log.shift();
+    while (this.log.length && (now - this.log[0].t > 1500 || this.log.length > 90)) this.log.shift();
     const patch: Record<string, unknown> = { s: snapshot, ev: this.log.map(l => [l.q, l.e]) };
     if (host) patch.h = host;
-    // stay under the 4 KiB presence budget: drop the oldest events if we must
+    // stay under the transport's budget (the relay takes 16 KiB per message; Rollout's minion picture
+    // is the big part): drop the oldest events if we must
     let json = JSON.stringify({ ...this.presenceBase, ...patch });
-    while (json.length > 3900 && (patch.ev as unknown[]).length > 0) {
+    while (json.length > 15000 && (patch.ev as unknown[]).length > 0) {
       (patch.ev as unknown[]).shift(); this.log.shift();
       json = JSON.stringify({ ...this.presenceBase, ...patch });
     }

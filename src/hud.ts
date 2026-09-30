@@ -6,7 +6,8 @@ import { QUALITY, Quality } from './render';
 import { buildGun } from './babo';
 import type { RenderFlags } from './render';
 import { RunUi } from './runui';
-import { BALLS, RUN } from './rundata';
+import { BALLS, RUN, DANGER } from './rundata';
+import { blankLife } from './game';
 
 const $ = (id: string) => document.getElementById(id)!;
 const hex = (n: number) => '#' + n.toString(16).padStart(6, '0');
@@ -42,6 +43,8 @@ export class Hud {
     $('play').addEventListener('click', () => { this.g.audio.unlock(); this.g.startSolo(); });
     $('play-online').addEventListener('click', () => { this.g.audio.play('click'); this.g.openLobby(); });
     $('practice-btn').addEventListener('click', () => { this.g.audio.unlock(); this.g.startPractice(); });
+    $('stats-btn').addEventListener('click', () => { this.g.audio.unlock(); this.g.audio.play('click'); this.showLifeStats(); });
+    $('stats-back').addEventListener('click', () => { this.g.audio.play('click'); $('lifestats').classList.remove('open'); $('menu').classList.add('open'); });
     $('arsenal-btn').addEventListener('click', () => {
       const a = $('arsenal'), open = a.hidden; a.hidden = !open;
       $('arsenal-btn').setAttribute('aria-expanded', String(open)); $('arsenal-btn').innerHTML = open ? 'THE ARSENAL &#9652;' : 'THE ARSENAL &#9662;';
@@ -51,7 +54,7 @@ export class Hud {
     $('to-lobby').addEventListener('click', () => this.g.backToLobby());
     $('to-menu').addEventListener('click', () => this.toMenu());
     $('lobby-back').addEventListener('click', () => { this.g.leaveLobby(); this.toMenu(); });
-    for (const m of ['duel', 'coop', 'ggduel', 'waves'] as ModeId[]) $('lobby-' + m).addEventListener('click', () => { this.g.audio.play('click'); this.g.hostMatch(m); });
+    for (const m of ['duel', 'coop', 'ggduel', 'waves', 'run'] as ModeId[]) $('lobby-' + m).addEventListener('click', () => { this.g.audio.play('click'); this.g.hostMatch(m); });
     $('invite-btn').addEventListener('click', () => { this.g.audio.play('click'); this.g.createInvite(); });
     $('invite-copy').addEventListener('click', () => {
       const inp = $('invite-link') as HTMLInputElement;
@@ -66,6 +69,13 @@ export class Hud {
     $('gear').addEventListener('click', () => { $('settings').classList.toggle('open'); this.syncSettings(); });
     $('tog-mute').addEventListener('change', e => this.g.setMuted((e.target as HTMLInputElement).checked));
     $('tog-assist').addEventListener('change', e => { this.g.saved.aimAssist = (e.target as HTMLInputElement).checked; this.g.save(); });
+    $('tog-autoaim').addEventListener('change', e => { this.g.saved.autoAim = (e.target as HTMLInputElement).checked; this.g.save(); });
+    const dn = $('dmgnum-seg');
+    for (const [v, label] of [['all', 'All'], ['big', 'Big hits'], ['off', 'Off']] as const) {
+      const b = document.createElement('button'); b.textContent = label; b.dataset.v = v;
+      b.addEventListener('click', () => { this.g.saved.dmgNums = v; this.g.save(); this.syncSettings(); });
+      dn.appendChild(b);
+    }
     $('vol-sfx').addEventListener('input', e => { const v = Number((e.target as HTMLInputElement).value) / 100; this.g.saved.sfxVol = v; this.g.audio.setSfxVolume(v); this.g.save(); });
     $('vol-sfx').addEventListener('change', () => { this.g.audio.unlock(); this.g.audio.play('pickup'); });
     $('vol-music').addEventListener('input', e => { const v = Number((e.target as HTMLInputElement).value) / 100; this.g.saved.musicVol = v; this.g.audio.music.setVolume(v); this.g.save(); });
@@ -136,6 +146,14 @@ export class Hud {
       b.addEventListener('click', () => { this.g.audio.unlock(); this.g.audio.play('click'); this.g.saved.ball = bt.id; this.g.save(); this.buildMenu(); });
       bs.appendChild(b);
     }
+    const dz = $('danger-seg'); dz.innerHTML = ''; dz.hidden = sm !== 'run';
+    const dmax = this.g.saved.dangerMax ?? 0;
+    DANGER.forEach((d, i) => {
+      const b = document.createElement('button'); b.textContent = `D${i}`; b.title = i <= dmax ? `${d.name}: ${d.blurb}` : `${d.name}: win a run on Danger ${i - 1} to unlock`;
+      b.disabled = i > dmax; b.className = i === Math.min(this.g.saved.danger ?? 0, dmax) ? 'on' : '';
+      b.addEventListener('click', () => { this.g.audio.unlock(); this.g.audio.play('click'); this.g.saved.danger = i; this.g.save(); this.buildMenu(); });
+      dz.appendChild(b);
+    });
     const ball = BALLS.find(b => b.id === this.g.saved.ball) ?? BALLS[0];
     $('tagline').textContent = sm === 'run' ? `Rollout: survive ${RUN.waves} waves of swarms. ${ball.name}: ${ball.blurb}${this.g.saved.runBest ? ` Best: wave ${this.g.saved.runBest}${this.g.saved.runWins ? `, ${this.g.saved.runWins} win${this.g.saved.runWins > 1 ? 's' : ''}` : ''}.` : ''}`
       : gg ? 'Gun Game: every pop moves you up a weapon. Pop someone with spikes to win.'
@@ -234,6 +252,8 @@ export class Hud {
     for (const b of Array.from($('res-seg').children) as HTMLElement[]) b.classList.toggle('on', Number(b.dataset.v) === f.res);
     ($('tog-mute') as HTMLInputElement).checked = this.g.saved.muted;
     ($('tog-assist') as HTMLInputElement).checked = this.g.saved.aimAssist;
+    ($('tog-autoaim') as HTMLInputElement).checked = !!this.g.saved.autoAim;
+    for (const b of Array.from($('dmgnum-seg').children) as HTMLElement[]) b.classList.toggle('on', b.dataset.v === (this.g.saved.dmgNums ?? 'all'));
     ($('vol-sfx') as HTMLInputElement).value = String(Math.round(this.g.saved.sfxVol * 100));
     ($('vol-music') as HTMLInputElement).value = String(Math.round(this.g.saved.musicVol * 100));
   }
@@ -300,7 +320,7 @@ export class Hud {
     $('invite-row').hidden = !(room && room.role === 'host' && net.linked);
     if (room && room.role === 'host') ($('invite-link') as HTMLInputElement).value = room.link;
     $('lobby-steps').hidden = g.inArtifact || room?.role === 'guest' || friends.length > 0;
-    for (const m of ['duel', 'coop', 'ggduel', 'waves'] as ModeId[]) ($('lobby-' + m) as HTMLButtonElement).disabled = !friends.length;
+    for (const m of ['duel', 'coop', 'ggduel', 'waves', 'run'] as ModeId[]) ($('lobby-' + m) as HTMLButtonElement).disabled = !friends.length;
     $('lobby-diag').textContent = room
       ? `${room.role} | code ${room.code} | server ${room.brokerOk ? 'ok' : 'no'} | ${net.linked ? 'connected' : 'not connected'} | ${friends.length} in lobby`
         + (room.ice.state === 'relay' ? (room.ice.path ? ` | ${room.ice.path}` : '') : room.ice.path && room.ice.state.includes('connected') ? ` | ${room.ice.path}` : room.ice.state !== 'idle' ? ` | ICE ${room.ice.state} | mine ${room.ice.local || '-'} | theirs ${room.ice.remote || '-'}${room.ice.path ? ' | via ' + room.ice.path : ''}` : '')
@@ -389,9 +409,11 @@ export class Hud {
     $('to-lobby').hidden = !g.online;
     $('to-menu').textContent = g.online ? 'LEAVE' : 'MAIN MENU';
     $('result-mid').textContent = g.mode.gun ? 'LEVEL' : 'POPS';
-    $('result-table').innerHTML = ranked.map((b, i) =>
+    (document.querySelector('#result table.board') as HTMLElement).hidden = !!g.run && !g.online;
+    $('result-table').innerHTML = ranked.filter(b => !g.run || b.human).map((b, i) =>
       `<tr class="${b.isPlayer ? 'me' : ''}"><td>${i + 1}</td><td><i style="background:${hex(b.color)}"></i>${esc(this.g.nameOf(b))}</td><td>${g.mode.gun ? lvl(b) : b.kills}</td><td>${b.deaths}</td></tr>`).join('');
     this.renderStats();
+    if (g.run) this.renderRunBreakdown();
     setTimeout(() => $('result').classList.add('open'), 700);
   }
 
@@ -408,7 +430,7 @@ export class Hud {
     const n = (b: Babo) => `<b style="color:${hex(b.color)}">${esc(this.g.nameOf(b))}</b>`;
     const c = causeOf(cause), img = gunThumbs()[cause as WeaponId];
     const how = c ? `<span class="how" style="--c:${hex(c.color)}">${img ? `<img alt="" src="${img}">` : ''}<em>${knifed ? 'SPIKED' : esc(c.name)}</em></span>` : `<span>${knifed ? 'SPIKED' : 'popped'}</span>`;
-    d.innerHTML = killer ? `${n(killer)} ${how} ${n(victim)}` : `${n(victim)} <span>popped themselves</span>${c ? ` <span class="how" style="--c:${hex(c.color)}"><em>${esc(c.name)}</em></span>` : ''}`;
+    d.innerHTML = cause === 'swarm' && !killer ? `${n(victim)} <span>got swarmed</span>` : killer ? `${n(killer)} ${how} ${n(victim)}` : `${n(victim)} <span>popped themselves</span>${c ? ` <span class="how" style="--c:${hex(c.color)}"><em>${esc(c.name)}</em></span>` : ''}`;
     if (knifed) d.classList.add('spiked');
     if (killer?.isPlayer || victim.isPlayer) d.classList.add('me');
     const f = $('feed'); f.prepend(d);
@@ -428,7 +450,10 @@ export class Hud {
   onPlayerDeath(killer: Babo | null, cause = '') {
     this.deathKiller = killer ? killer.name : '';
     if (cause === 'swarm' || (this.g.run && !killer)) {
-      $('dead-by').innerHTML = 'Swarmed!'; $('dead-tip').textContent = ''; $('dead').classList.add('show'); $('dead').classList.remove('cam'); return;
+      const coop = !!this.g.run?.coop;
+      $('dead-by').innerHTML = coop ? 'Downed!' : 'Swarmed!';
+      $('dead-tip').textContent = coop ? `${this.g.babos.find(b => b.human && !b.isPlayer)?.name ?? 'Your friend'} can revive you: they need to roll next to your ghost for ${3} seconds. Otherwise you're back next wave.` : '';
+      $('dead').classList.add('show'); $('dead').classList.remove('cam'); return;
     }
     const c = causeOf(cause || killer?.weapon || '');
     const art = cause === 'nuke' || cause === 'grenade' || cause === 'mine' ? 'a' : 'the';
@@ -522,6 +547,27 @@ export class Hud {
 
   /** "E pick up Rockets" when you're standing on a gun you don't have. */
   private pickShown: unknown = null;
+  /** Rollout: arrows at the screen edge for elites, bosses and your teammate when they're off screen. */
+  private edgeEls: HTMLElement[] = [];
+  private updateEdgeArrows() {
+    const g = this.g, cam = g.r.camera; let n = 0;
+    if (g.run && g.state === 'playing') for (const b of g.babos) {
+      if (!b.alive || b.isPlayer || (b.human && !g.run.coop)) continue;
+      this.v.set(b.x, b.y + 0.5, b.z).project(cam);
+      const x = this.v.x, y = this.v.y;
+      if (this.v.z < 1 && Math.abs(x) < 0.97 && Math.abs(y) < 0.94) continue;
+      const k = 0.92 / Math.max(Math.abs(x), Math.abs(y), 0.001), ex = this.v.z > 1 ? -x : x, ey = this.v.z > 1 ? -y : y;
+      const px = ((ex * k + 1) / 2) * innerWidth, py = ((1 - ey * k) / 2) * innerHeight;
+      let el = this.edgeEls[n];
+      if (!el) { el = document.createElement('div'); el.className = 'edgearrow'; $('edgearrows').appendChild(el); this.edgeEls[n] = el; }
+      el.style.display = ''; el.style.setProperty('--c', hex(b.human ? 0x7dffb0 : b.boss ? 0xff4a4a : 0xffb43a));
+      el.style.transform = `translate(${px}px, ${py}px) rotate(${Math.atan2(-ey, ex)}rad)`;
+      el.textContent = b.human ? b.name.slice(0, 8) : b.boss ? 'BOSS' : '';
+      n++;
+    }
+    for (let i = n; i < this.edgeEls.length; i++) this.edgeEls[i].style.display = 'none';
+  }
+
   private updatePickHint() {
     const q = this.g.state === 'playing' ? this.g.gunInReach() : null;
     if (q === this.pickShown) return;
@@ -531,6 +577,42 @@ export class Hud {
   }
 
   /** Results screen: your numbers for the match, with personal bests starred. */
+  /** The lifetime stats page. */
+  showLifeStats() {
+    const g = this.g, L = g.saved.life ?? blankLife(), sv = g.saved;
+    const tile = (label: string, val: string) => `<div class="st"><b>${val}</b><span>${label}</span></div>`;
+    const hrs = L.time / 3600, time = hrs >= 1 ? `${hrs.toFixed(1)} h` : `${Math.round(L.time / 60)} min`;
+    const kd = L.deaths ? (L.pops / L.deaths).toFixed(2) : L.pops ? String(L.pops) : '-';
+    const top = (o: Record<string, number>, n: number, name: (k: string) => string, unit = '') => Object.entries(o).sort((a, b) => b[1] - a[1]).slice(0, n)
+      .map(([k, v], i, arr) => `<div class="bd-row"><span>${esc(name(k))}</span><i><b style="width:${Math.max(3, (100 * v) / arr[0][1])}%"></b></i><em>${v.toLocaleString()}${unit}</em></div>`).join('') || '<span class="dim">Nothing yet</span>';
+    const modes = (Object.keys(MODES) as ModeId[]).filter(m => L.byMode[m]).map(m => `<tr><td>${MODES[m].name}</td><td>${L.byMode[m]}</td></tr>`).join('') || '<tr><td class="dim">No matches yet</td><td></td></tr>';
+    const balls = BALLS.map(b => `<tr><td>${b.name}</td><td>${L.bestByBall[b.id] ? `wave ${L.bestByBall[b.id]}` : '-'}</td></tr>`).join('');
+    const dangers = DANGER.map((d, i) => L.bestByDanger[String(i)] ? `<tr><td>${d.name}</td><td>wave ${L.bestByDanger[String(i)]}</td></tr>` : '').join('') || '<tr><td class="dim">No runs yet</td><td></td></tr>';
+    $('lifestats-body').innerHTML = `
+      <div class="ls-tiles">${tile('MATCHES', String(L.matches))}${tile('POPS', L.pops.toLocaleString())}${tile('POPPED', L.deaths.toLocaleString())}${tile('POPS PER DEATH', kd)}${tile('DAMAGE', L.dmg.toLocaleString())}${tile('PLAYED', time)}</div>
+      <div class="ls-grid">
+        <div class="bd pill"><div class="kit-label">FAVOURITE GUNS <span>by pops</span></div>${top(L.gunPops, 6, k => WEAPONS[k as WeaponId]?.name ?? k)}</div>
+        <div class="bd pill"><div class="kit-label">MODES</div><table>${modes}</table>
+          <div class="kit-label" style="margin-top:8px">RECORDS</div><table>
+          <tr><td>Hold the Fort</td><td>${sv.bestWave ? `wave ${sv.bestWave}` : '-'}</td></tr>
+          <tr><td>Practice range</td><td>${sv.practiceBest ? fmtTime(sv.practiceBest) : '-'}</td></tr>
+          <tr><td>Best free-for-all finish</td><td>${sv.best ? ordinal(sv.best) : '-'}</td></tr></table></div>
+        <div class="bd pill"><div class="kit-label">ROLLOUT <span>${L.runs} runs &middot; ${L.runWins} won &middot; ${L.minionPops.toLocaleString()} minions &middot; ${L.runCoins.toLocaleString()} coins</span></div>
+          <table>${balls}</table><div class="kit-label" style="margin-top:8px">BEST BY DANGER</div><table>${dangers}</table></div>
+        <div class="bd pill"><div class="kit-label">ROLLOUT DAMAGE <span>all runs</span></div>${top(L.runDmg, 8, k => k)}</div>
+      </div>`;
+    $('menu').classList.remove('open'); $('lifestats').classList.add('open');
+  }
+
+  /** Rollout results: damage by source and a line per wave. */
+  private renderRunBreakdown() {
+    const r = this.g.run!, rows = [...r.dmgBy.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8), tot = rows.reduce((s, x) => s + x[1], 0) || 1;
+    const bars = rows.map(([k, v]) => `<div class="bd-row"><span>${esc(k)}</span><i><b style="width:${Math.max(2, (100 * v) / rows[0][1])}%"></b></i><em>${Math.round(v)} &middot; ${Math.round((100 * v) / tot)}%</em></div>`).join('');
+    const waves = r.fullLog().slice(-20).map(w => `<tr><td>${w.n}</td><td>${w.pops}</td><td>${w.coins}</td><td>${w.taken}</td></tr>`).join('');
+    $('result-stats').insertAdjacentHTML('beforeend', `<div class="bd pill"><div class="kit-label">DAMAGE DEALT</div>${bars || '<span class="dim">Nothing yet</span>'}</div>
+      ${waves ? `<div class="bd pill waves"><div class="kit-label">WAVE BY WAVE</div><table><thead><tr><th>WAVE</th><th>POPS</th><th>COINS</th><th>HURT</th></tr></thead><tbody>${waves}</tbody></table></div>` : ''}`);
+  }
+
   private renderStats() {
     const g = this.g, ms = g.ms, p = g.player;
     const acc = ms.shots ? Math.round((100 * ms.hits) / ms.shots) : 0;
@@ -551,6 +633,8 @@ export class Hud {
 
   floater(x: number, z: number, n: number) {
     if (this.floaters.length > 45) return;   // Rollout swarms: don't flood the page
+    const mode = this.g.saved.dmgNums ?? 'all';
+    if (mode === 'off' || (mode === 'big' && n < 25)) return;
     const el = document.createElement('div'); el.className = 'floater'; el.textContent = String(n);
     $('floaters').appendChild(el);
     this.floaters.push({ el, x: x + (Math.random() - 0.5) * 0.6, z, t: 0 });
@@ -643,6 +727,7 @@ export class Hud {
     this.updateArcs(dt);
     this.updatePadLabels();
     this.updatePickHint();
+    this.updateEdgeArrows();
     // floaters
     for (let i = this.floaters.length - 1; i >= 0; i--) {
       const f = this.floaters[i]; f.t += dt;
@@ -690,7 +775,7 @@ export class Hud {
     ($('cross') as HTMLElement).style.setProperty('--r', String(p.reloadT > 0 ? 1 - p.reloadT / w.reload : 0));
 
     // death overlay
-    if (!p.alive && g.state === 'playing' && g.run) { $('dead-t').textContent = ''; $('dead-next').textContent = ''; }
+    if (!p.alive && g.state === 'playing' && g.run) { $('dead-t').textContent = g.run.coop ? `Revive ${Math.round(g.run.reviveProg * 100)}%` : ''; $('dead-next').textContent = ''; }
     else if (!p.alive && g.state === 'playing') {
       const out = g.mode.waves && g.wv.out.has(p.id);
       $('dead-t').textContent = out ? (g.wv.breakT > 0 ? 'Back any second' : 'Out until the next wave') : `Back in ${Math.max(0, p.respawnT).toFixed(1)}s`;
