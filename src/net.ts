@@ -24,7 +24,7 @@ export type NetEvent =
   | { k: 'mh'; h: number[] }
   | { k: 'rr'; n: number }
   | { k: 'rc'; v: number }
-  | { k: 'rk'; n: number };   // the guest rolled over a loot crate
+  | { k: 'rk'; n: number; g?: number };   // the guest rolled over a loot crate
 
 export interface StartOffer { e: number; mode: ModeId; seed: number; guest: string; roster: RosterEntry[]; diff: string; map?: string; n?: number; th?: string; dg?: number }
 export interface RosterEntry { id: number; name: string; color: number; team: number; human: boolean; peer?: string; sk?: number }

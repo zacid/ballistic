@@ -61,20 +61,37 @@ await T('shielder', () => {
   return { front: front.toFixed(1), back: back.toFixed(1), grenadeFromFront: blast.toFixed(1) };
 });
 await T('crate', () => {
-  const g = window.__game, r = g.run, me = g.player;
+  const g = window.__game, r = g.run, me = g.player; r.n = 7;
   r.dropCrate(me.x + 0.4, me.z);
   for (let i = 0; i < 5; i++) g.step(1 / 120);
   const got = r.cratesPending;
   r.minions.forEach(m => m.dead = true); r.t = 0.001; g.step(1 / 120);
-  const phase = r.phase, item = r.crateItem?.name, val = r.crateValue();
-  const items0 = [...r.items.values()].reduce((a, v) => a + v, 0);
-  r.openCrate(true);
-  return { pending: got, phase, item, sellValue: val, itemsAfter: [...r.items.values()].reduce((a, v) => a + v, 0) - items0, next: r.phase };
+  const phase = r.phase, inside = r.crateOffers.map(o => `${o.kind} T${o.tier + 1}`), val = r.crateValue();
+  r.openCrate(0);
+  return { pending: got, phase, inside, sellValue: val, next: r.phase };
+});
+await T('golden crate + tiers', () => {
+  const g = window.__game, r = g.run; const tiers = [];
+  for (const n of [3, 7, 15]) { r.n = n; r.crateQ = [0]; for (let k = 0; k < 40; k++) { r.rollCrate(); tiers.push(`w${n}:` + r.crateOffers[0].tier); } }
+  const minByWave = {}; for (const t of tiers) { const [w, v] = t.split(':'); minByWave[w] = Math.min(minByWave[w] ?? 9, +v + 1); }
+  r.n = 10; r.crateQ = [1, 0]; r.rollCrate(); const gold = r.crateOffers.map(o => `${o.kind} T${o.tier + 1}`);
+  r.phase = 'crate'; const coins0 = r.mats; r.openCrate(-1); const sold = r.mats - coins0;
+  const left = r.crateOffers.length; r.openCrate(0);
+  return { lowestTierByWave: minByWave, golden3: gold, soldGoldFor: sold, nextCrateHad: left, phase: r.phase };
+});
+await T('tuning numbers', () => {
+  const g = window.__game, r = g.run, out = {};
+  const hpAt = (n) => { r.n = n; const m = r.addMinion('roller', 0, 0); const h = m.max; m.dead = true; return Math.round(h); };
+  out.rollerHp = [1, 5, 8, 12, 16, 20].map(n => `w${n}:${hpAt(n)}`).join(' ');
+  out.maxAlive = [5, 8, 12, 15, 20].map(n => { r.n = n; return `w${n}:${r.maxAlive()}`; }).join(' ');
+  r.n = 10; out.price10 = r.priceScale().toFixed(2);
+  r.rerolls = 0; const rc0 = r.rerollCost; r.rerolls = 2; out.reroll10 = `${rc0} then ${r.rerollCost}`; r.rerolls = 0;
+  return out;
 });
 await p.waitForTimeout(100);
 await T('special waves', () => {
   const g = window.__game, r = g.run, seen = new Set();
-  for (let k = 0; k < 12; k++) { while (r.phase === 'crate' || r.phase === 'levelup') { if (r.phase === 'crate') r.openCrate(true); else r.pickLevel(0); } r.phase = 'shop'; r.n = 6; r.nextWave(); seen.add(r.special); r.minions.forEach(m => m.dead = true); r.phase = 'shop'; }
+  for (let k = 0; k < 12; k++) { while (r.phase === 'crate' || r.phase === 'levelup') { if (r.phase === 'crate') r.openCrate(0); else r.pickLevel(0); } r.phase = 'shop'; r.n = 6; r.nextWave(); seen.add(r.special); r.minions.forEach(m => m.dead = true); r.phase = 'shop'; }
   r.phase = 'shop'; r.n = 3; r.nextWave();
   const banner = document.getElementById('banner').textContent;
   let horde = null;
@@ -91,8 +108,14 @@ await p.waitForTimeout(200); await p.screenshot({ path: `${shots}/x-minions.png`
 await p.evaluate(() => { const g = window.__game, r = g.run; g.player.weapon = 'chaingun'; r.addTurret({ w: 'shotgun', name: 'Scatter Turret', rate: 0.8, dmg: 5, range: 4.2, price: 20, pellets: 6, spread: 0.5 }, 0); r.recalc(); r.phase = 'shop'; r.n = 1; r.offers = []; r.rollShop(); g.hud.runUi.open(); });
 await p.waitForTimeout(300); await p.screenshot({ path: `${shots}/x-shop.png` });
 // crate screen
-await p.evaluate(() => { const g = window.__game, r = g.run; r.cratesPending = 1; r.crateItem = null; r.phase = 'crate'; r.rollCrate(); g.hud.runUi.open(); });
+await p.evaluate(() => { const g = window.__game, r = g.run; r.n = 10; r.crateQ = [1]; r.phase = 'crate'; r.rollCrate(); g.hud.runUi.open(); });
 await p.waitForTimeout(200); await p.screenshot({ path: `${shots}/x-crate.png` });
+// the tuning panel
+await p.keyboard.press('F2');
+await p.evaluate(() => { const i = document.querySelector('#tune input[data-k="hp"]'); i.value = '1.3'; i.dispatchEvent(new Event('input', { bubbles: true })); });
+console.log('tune:', await p.evaluate(() => JSON.stringify({ open: document.getElementById('tune').classList.contains('open'), saved: window.__game.saved.tune, hpLabel: document.querySelector('#tune label[data-k="hp"] b').textContent })));
+await p.screenshot({ path: `${shots}/x-tune.png` });
+await p.evaluate(() => document.querySelector('#tune [data-a="reset"]').click()); await p.keyboard.press('F2');
 // end the run and open the stats page
 await p.evaluate(async () => { const g = window.__game; g.hud.runUi.close(); g.run.phase = 'wave'; g.applyDamage(g.player, 1e5, -1, 0, 0, 0, 0, 'swarm'); await new Promise(r => setTimeout(r, 1500)); g.hud.toMenu(); g.hud.showLifeStats(); });
 await p.waitForTimeout(300); await p.screenshot({ path: `${shots}/x-stats.png` });

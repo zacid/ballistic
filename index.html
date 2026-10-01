@@ -251,6 +251,20 @@ button.ru-card:hover { transform: translateY(-3px); }
 .ru-sets .set.on span { color: #7dffb0; }
 .ru-cards.one { grid-template-columns: minmax(0, 300px); justify-content: center; }
 .ru.crate .ru-card { justify-items: center; text-align: center; }
+.ru-cards.three { grid-template-columns: repeat(3, minmax(0, 240px)); justify-content: center; }
+.ru.crate.gold { border-color: #ffd84a; box-shadow: 0 0 0 3px #ffd84a55, 0 10px 0 var(--ink); }
+.ru.crate.gold .ru-title { color: #ffd84a; }
+#tune { position: fixed; right: 12px; top: 64px; z-index: 60; width: 300px; max-height: calc(100vh - 80px); overflow: auto; background: var(--panel); border: 3px solid var(--ink); border-radius: 14px; padding: 10px 12px; font: 700 12px var(--ui); color: var(--text, #fff); display: none; }
+#tune.open { display: block; }
+#tune h3 { margin: 0 0 2px; font: 400 18px var(--display); }
+#tune p { margin: 0 0 8px; color: var(--muted); font-weight: 600; }
+#tune label { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; margin: 6px 0; }
+#tune label input { grid-column: 1 / -1; width: 100%; accent-color: #ffd84a; }
+#tune label b { color: #ffd84a; }
+#tune label.chg span { color: #ffd84a; }
+#tune .row { display: flex; gap: 6px; margin-top: 8px; }
+#tune .row button { flex: 1; margin: 0; padding: 4px 6px; font-size: 12px; white-space: nowrap; }
+#tune textarea { width: 100%; height: 70px; margin-top: 6px; font: 11px monospace; display: none; }
 
 #lifestats-body { width: min(980px, 100%); display: grid; gap: 12px; text-align: left; }
 .ls-tiles { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
@@ -547,6 +561,7 @@ body.perf #feed { top: calc(224px + var(--sa-t)); }
   <div class="row"><label for="tog-assist" title="Nudges your aim onto bots that are close to your crosshair. Never applies against your friend.">Aim assist (vs bots)</label><input type="checkbox" id="tog-assist"></div>
   <div class="row"><label for="tog-autoaim" title="Rollout only: your gun aims at the nearest enemy and fires by itself (click to take over).">Auto-aim in Rollout</label><input type="checkbox" id="tog-autoaim"></div>
   <div class="kit-label" style="margin:6px 0 4px">Damage numbers</div><div class="seg" id="dmgnum-seg"></div>
+  <div class="row"><label>Rollout tuning sliders (<kbd>F2</kbd>)</label><button class="ghost-btn" id="open-tune" style="margin:0;padding:3px 12px;font-size:13px">OPEN</button></div>
   <h4>PERFORMANCE</h4>
   <div class="row"><label for="tog-perf">Performance panel (<kbd>F</kbd>)</label><input type="checkbox" id="tog-perf"></div>
   <h4>DEBUG SWITCHES</h4>

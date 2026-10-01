@@ -53,7 +53,7 @@ for (let w = 2; w <= 5; w++) {
   const s = await st();
   console.log(`after wave ${w}:`, JSON.stringify(s));
   if (s.state !== 'playing') break;
-  await p.evaluate(() => { const g = window.__game, r = g.run; while (r.phase === 'crate' || r.phase === 'levelup') { if (r.phase === 'crate') r.openCrate(true); else r.pickLevel(0); } r.mats += 60;
+  await p.evaluate(() => { const g = window.__game, r = g.run; while (r.phase === 'crate' || r.phase === 'levelup') { if (r.phase === 'crate') r.openCrate(0); else r.pickLevel(0); } r.mats += 60;
     // buy the cheapest turret or item each shop
     let best = -1, bp = 1e9; r.offers.forEach((o, i) => { if (!o.sold && o.price < bp && (o.kind !== 'turret' || r.turrets.length < 4)) { bp = o.price; best = i; } });
     if (best >= 0) r.buy(best); r.nextWave(); });
@@ -70,7 +70,7 @@ await p.screenshot({ path: `${shots}/rollout-boss.png` });
 const end = await p.evaluate(() => { const g = window.__game, r = g.run, bs = g.babos[r.bossId]; if (bs) g.applyDamage(bs, 1e5, g.player.id, 0, 0); for (let i = 0; i < 60; i++) g.step(1 / 120); return { phase: r.phase, wave: r.n, state: g.state }; });
 console.log('after boss:', JSON.stringify(end));
 // die: the run ends with a results screen
-const dead = await p.evaluate(async () => { const g = window.__game, r = g.run; delete r.incoming; while (r.phase === 'crate' || r.phase === 'levelup') { if (r.phase === 'crate') r.openCrate(true); else r.pickLevel(0); } r.nextWave(); g.applyDamage(g.player, 1e5, -1, 0, 0, 0, 0, 'swarm'); for (let i = 0; i < 240; i++) g.step(1 / 120); await new Promise(res => setTimeout(res, 1200)); return { state: g.state, title: document.getElementById('result-title').textContent, sub: document.getElementById('result-sub').textContent, best: g.saved.runBest }; });
+const dead = await p.evaluate(async () => { const g = window.__game, r = g.run; delete r.incoming; while (r.phase === 'crate' || r.phase === 'levelup') { if (r.phase === 'crate') r.openCrate(0); else r.pickLevel(0); } r.nextWave(); g.applyDamage(g.player, 1e5, -1, 0, 0, 0, 0, 'swarm'); for (let i = 0; i < 240; i++) g.step(1 / 120); await new Promise(res => setTimeout(res, 1200)); return { state: g.state, title: document.getElementById('result-title').textContent, sub: document.getElementById('result-sub').textContent, best: g.saved.runBest }; });
 console.log('death:', JSON.stringify(dead));
 console.log('errors:', errs.length ? errs : 'none');
 await b.close();

@@ -1,3 +1,4 @@
+import type { Tune } from './rundata';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CLIMB, Arena, CELL } from './arena';
@@ -55,7 +56,7 @@ export const blankLife = (): Life => ({ matches: 0, byMode: {}, pops: 0, deaths:
 export interface Saved {
   weapon: WeaponId; ability: AbilityId; color: number; difficulty: Difficulty; quality: Quality | 'auto';
   muted: boolean; best?: number; perf?: boolean; nick: string;
-  soloMode: 'solo' | 'gungame' | 'waves' | 'run'; ball: string; life?: Life; runBest?: number; runWins?: number; danger?: number; dangerMax?: number; autoAim?: boolean; dmgNums?: 'all' | 'big' | 'off'; map: MapChoice; theme: ThemeChoice; arenaSize: ArenaSize; botCount: number; coopBots: number; ffaSkill?: number; bestWave?: number; practiceBest?: number; music?: boolean; sfxVol: number; musicVol: number; records?: { streak?: number; dmg?: number; acc?: number }; aimAssist: boolean; v2?: boolean;
+  soloMode: 'solo' | 'gungame' | 'waves' | 'run'; ball: string; life?: Life; tune?: Partial<Tune>; runBest?: number; runWins?: number; danger?: number; dangerMax?: number; autoAim?: boolean; dmgNums?: 'all' | 'big' | 'off'; map: MapChoice; theme: ThemeChoice; arenaSize: ArenaSize; botCount: number; coopBots: number; ffaSkill?: number; bestWave?: number; practiceBest?: number; music?: boolean; sfxVol: number; musicVol: number; records?: { streak?: number; dmg?: number; acc?: number }; aimAssist: boolean; v2?: boolean;
 }
 function load(): Saved {
   let s: Partial<Saved> = {};
@@ -64,7 +65,7 @@ function load(): Saved {
     // v2: Adaptive became the default (once), since it's the one that suits Hold the Fort
     weapon: s.weapon ?? 'shotgun', ability: s.ability ?? 'dash', color: s.color ?? 0, difficulty: (s as any).v2 ? s.difficulty ?? 'adaptive' : 'adaptive',
     quality: s.quality ?? 'auto', muted: !!s.muted, best: s.best, perf: s.perf, nick: s.nick ?? '',
-    soloMode: s.soloMode ?? 'solo', map: s.map && s.map in MAPS ? s.map : 'random', theme: s.theme && s.theme in THEMES ? s.theme : 'toy', ball: s.ball ?? 'classic', runBest: s.runBest, runWins: s.runWins, danger: s.danger ?? 0, dangerMax: s.dangerMax ?? 0, autoAim: s.autoAim ?? false, dmgNums: s.dmgNums ?? 'all', arenaSize: s.arenaSize ?? 'medium', botCount: s.botCount ?? 7, coopBots: s.coopBots ?? 5, bestWave: s.bestWave, music: s.music ?? true, sfxVol: s.sfxVol ?? 1, aimAssist: s.aimAssist ?? true, musicVol: s.musicVol ?? (s.music === false ? 0 : 0.8), v2: true,
+    soloMode: s.soloMode ?? 'solo', map: s.map && s.map in MAPS ? s.map : 'random', theme: s.theme && s.theme in THEMES ? s.theme : 'toy', ball: s.ball ?? 'classic', runBest: s.runBest, runWins: s.runWins, tune: s.tune, life: s.life, records: s.records, practiceBest: s.practiceBest, ffaSkill: s.ffaSkill, danger: s.danger ?? 0, dangerMax: s.dangerMax ?? 0, autoAim: s.autoAim ?? false, dmgNums: s.dmgNums ?? 'all', arenaSize: s.arenaSize ?? 'medium', botCount: s.botCount ?? 7, coopBots: s.coopBots ?? 5, bestWave: s.bestWave, music: s.music ?? true, sfxVol: s.sfxVol ?? 1, aimAssist: s.aimAssist ?? true, musicVol: s.musicVol ?? (s.music === false ? 0 : 0.8), v2: true,
   };
 }
 
@@ -1676,7 +1677,7 @@ export class Game {
       case 'mh': { const guest = this.babos.find(x => x.human && !x.isPlayer); if (this.run && this.host && guest) this.run.applyGuestHits(guest, e.h); break; }
       case 'rc': if (this.run && !this.host) this.run.credit(e.v); break;
       case 'rr': if (this.run && this.host) this.run.onPartnerReady(e.n); break;
-      case 'rk': if (this.run && !this.host) this.run.gotCrate(); break;
+      case 'rk': if (this.run && !this.host) this.run.gotCrate(!!e.g); break;
       case 'pick': if (e.d) { const i = this.pickups.findIndex(p => p.drop === e.d); if (i >= 0) this.takePickup(i); } else this.takePickup(e.i); break;
     }
   }

@@ -2,7 +2,7 @@
 import type { Game } from './game';
 import { WEAPONS, WeaponId } from './config';
 import { gunThumbs } from './hud';
-import { RUN, TIERS, TIER_DMG, STAT_INFO, StatId, ITEMS, Stats, WEAPON_CLASS, CLASSES, ClassId } from './rundata';
+import { RUN, TIERS, TIER_DMG, STAT_INFO, StatId, ITEMS, Stats, WEAPON_CLASS, CLASSES, ClassId, TUNE } from './rundata';
 import type { Offer, Turret } from './run';
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -29,7 +29,13 @@ export class RunUi {
       const r = this.g.run; if (!r) return;
       const k = e.key.toLowerCase();
       if (r.phase === 'won') return;
-      if (r.phase === 'crate') { if (k === '1' || k === 'enter' || k === ' ') { e.preventDefault(); r.openCrate(true); this.render(); } else if (k === '2') { e.preventDefault(); r.openCrate(false); this.render(); } return; }
+      if (r.phase === 'crate') {
+        const many = r.crateOffers.length > 1;
+        if (k >= '1' && k <= String(r.crateOffers.length)) { e.preventDefault(); this.take(Number(k) - 1); }
+        else if (k === 'enter' || k === ' ') { e.preventDefault(); if (!many) this.take(0); }
+        else if (k === 's' || (!many && k === '2')) { e.preventDefault(); this.take(-1); }
+        return;
+      }
       if (k >= '1' && k <= '4') { e.preventDefault(); if (r.phase === 'levelup') this.pickLevel(Number(k) - 1); else this.buy(Number(k) - 1); }
       else if (k === 'r') { e.preventDefault(); this.reroll(); }
       else if ((k === 'enter' || k === ' ') && r.phase === 'shop' && !r.ready) { e.preventDefault(); r.nextWave(); }
@@ -47,9 +53,8 @@ export class RunUi {
     const t = e ? (e.target as HTMLElement).closest('[data-h]') as HTMLElement | null : null;
     const key = t?.dataset.h ?? '';
     let prev: Partial<Stats> | null = null, range = 0;
-    if (key === 'c' && r.crateItem) prev = r.crateItem.mods;
-    else if (key.startsWith('o')) {
-      const o = r.offers[Number(key.slice(1))];
+    if (key.startsWith('o') || key.startsWith('c')) {
+      const o = key.startsWith('c') ? r.crateOffers[Number(key.slice(1))] : r.offers[Number(key.slice(1))];
       if (o?.kind === 'item') prev = o.item.mods;
       if (o?.kind === 'turret') range = o.turret.range * r.rangeMul;
     } else if (key.startsWith('l')) {
@@ -74,11 +79,13 @@ export class RunUi {
     else if (a === 'sell') { const tu = r.turrets[i]; if (tu) { r.sell(tu); this.render(); } }
     else if (a === 'combine') { const tu = r.turrets[i]; if (tu) { r.combine(tu); this.render(); } }
     else if (a === 'sellitem') { r.sellItem(t.dataset.id!); this.render(); }
-    else if (a === 'keep' || a === 'scrap') { r.openCrate(a === 'keep'); this.prev = null; this.render(); }
+    else if (a === 'take') this.take(i);
+    else if (a === 'scrap') this.take(-1);
     else if (a === 'endless') { this.g.audio.play('click'); r.keepGoing(); this.render(); }
     else if (a === 'finish') { this.close(); this.g.end('You cleared all 20 waves!'); }
   }
   private pickLevel(i: number) { const r = this.g.run!; if (!r.levelOffers[i]) return; r.pickLevel(i); this.prev = null; this.g.audio.play('pickup'); this.render(); }
+  private take(i: number) { const r = this.g.run!, m = r.openCrate(i); if (m) this.flash(m); else { this.prev = null; r.showRange = 0; this.render(); } }
   private buy(i: number) { const r = this.g.run!, m = r.buy(i); if (m) this.flash(m); else { this.prev = null; this.render(); } }
   private reroll() {
     const r = this.g.run!;
@@ -97,13 +104,14 @@ export class RunUi {
         <div class="ru-actions center">${this.g.online && !this.g.host ? `<span class="dim">${esc(this.partnerName())} decides whether to keep going</span><button class="ghost-btn" data-a="endless">KEEP GOING TOO</button>` : `<button class="big-btn" data-a="endless">KEEP GOING (ENDLESS)</button><button class="ghost-btn" data-a="finish">FINISH RUN</button>`}</div></div>`;
       return;
     }
-    if (r.phase === 'crate' && r.crateItem) {
-      const it = r.crateItem;
-      const lines = Object.entries(it.mods).map(([k, v]) => `<li class="${(v as number) >= 0 ? 'up' : 'down'}">${sgn(v as number)}${STAT_INFO[k as StatId].unit} ${STAT_INFO[k as StatId].name}</li>`).join('');
-      this.el.innerHTML = `<div class="ru pill crate"><div class="ru-top"><div class="ru-title">LOOT CRATE${r.cratesPending > 1 ? ` <small>&times;${r.cratesPending}</small>` : ''}</div><div class="ru-coins">${COIN}<b>${r.mats}</b></div></div>
-        <div class="ru-cards one"><div class="ru-card" data-h="c" style="--t:${hex(TIERS[it.tier].color)}"><span class="tier">${TIERS[it.tier].name} ITEM</span><div class="ru-glyph">${esc(it.name.split(' ').map(x => x[0]).join('').slice(0, 2))}</div><b>${esc(it.name)}</b><ul>${lines}</ul></div></div>
-        <div class="ru-actions center"><button class="big-btn" data-a="keep">TAKE IT <kbd>1</kbd></button><button class="ghost-btn" data-a="scrap">SELL FOR ${COIN}${r.crateValue()} <kbd>2</kbd></button></div>
-        <div class="ru-load one"><div class="ru-col"><div class="kit-label">STATS <span>hover the item to preview</span></div><div class="ru-stats">${this.statsHtml()}</div></div></div></div>`;
+    if (r.phase === 'crate' && r.crateOffers.length) {
+      const gold = r.crateOffers.length > 1, thumbs = gunThumbs();
+      this.el.innerHTML = `<div class="ru pill crate${gold ? ' gold' : ''}"><div class="ru-top"><div class="ru-title">${gold ? 'GOLDEN CRATE' : 'LOOT CRATE'}${r.cratesPending > 1 ? ` <small>&times;${r.cratesPending}</small>` : ''}</div><div class="ru-coins">${COIN}<b>${r.mats}</b></div></div>
+        ${gold ? '<div class="ru-sub">Pick one, free.</div>' : ''}
+        <div class="ru-cards${gold ? ' three' : ' one'}">${r.crateOffers.map((o, i) => this.offerCard(o, i, thumbs, true)).join('')}</div>
+        <div class="ru-actions center">${gold ? '' : '<button class="big-btn" data-a="take" data-i="0">TAKE IT <kbd>1</kbd></button>'}<button class="ghost-btn" data-a="scrap">SELL ${gold ? 'ALL ' : ''}FOR ${COIN}${r.crateValue()} <kbd>${gold ? 'S' : '2'}</kbd></button></div>
+        ${msg ? `<div class="ru-msg">${esc(msg)}</div>` : ''}
+        ${this.loadout(thumbs)}</div>`;
       return;
     }
     const coop = r.coop;
@@ -128,8 +136,8 @@ export class RunUi {
     this.el.innerHTML = `<div class="ru pill">${top}${body}${msg ? `<div class="ru-msg">${esc(msg)}</div>` : ''}</div>`;
   }
 
-  private offerCard(o: Offer, i: number, thumbs: Partial<Record<string, string>>) {
-    const r = this.g.run!, afford = r.mats >= o.price, p = this.g.player;
+  private offerCard(o: Offer, i: number, thumbs: Partial<Record<string, string>>, crate = false) {
+    const r = this.g.run!, afford = crate || r.mats >= o.price, p = this.g.player;
     let name = '', kind = '', img = '', lines = '';
     if (o.kind === 'item') {
       name = o.item.name; kind = 'ITEM';
@@ -147,11 +155,11 @@ export class RunUi {
       const now = r.mainDps(), then = r.mainDps(o.w as WeaponId, newTier);
       lines = `${this.classTag(o.w)}<li class="dim">${esc(w.blurb)}</li><li class="${then >= now ? 'up' : 'down'}">${Math.round(now)} &rarr; ${Math.round(then)} damage/s</li>${same ? `<li class="up">Upgrades yours to ${TIERS[newTier].name}</li>` : '<li>Replaces your aimed gun</li>'}`;
     }
-    return `<div class="ru-card${o.sold ? ' sold' : ''}${o.locked ? ' locked' : ''}${!o.sold && !afford ? ' poor' : ''}" data-h="o${i}" style="--t:${hex(TIERS[o.tier].color)}">
+    return `<div class="ru-card${o.sold ? ' sold' : ''}${o.locked ? ' locked' : ''}${!o.sold && !afford ? ' poor' : ''}" data-h="${crate ? 'c' : 'o'}${i}" style="--t:${hex(TIERS[o.tier].color)}">
       <em>${i + 1}</em><span class="tier">${TIERS[o.tier].name} ${kind}</span>
       ${img ? `<img alt="" src="${img}">` : `<div class="ru-glyph">${esc(name.split(' ').map(s => s[0]).join('').slice(0, 2))}</div>`}
       <b>${esc(name)}</b><ul>${lines}</ul>
-      <div class="ru-buy">${o.sold ? '<span class="dim">SOLD</span>' : `<button class="buy${afford ? '' : ' poor'}" data-a="buy" data-i="${i}">${COIN}${o.price}</button><button class="lock" data-a="lock" data-i="${i}" title="Lock: keep this offer through rerolls and into the next shop">${o.locked ? 'LOCKED' : 'LOCK'}</button>`}</div>
+      <div class="ru-buy">${crate ? `<button class="buy" data-a="take" data-i="${i}">TAKE</button>` : o.sold ? '<span class="dim">SOLD</span>' : `<button class="buy${afford ? '' : ' poor'}" data-a="buy" data-i="${i}">${COIN}${o.price}</button><button class="lock" data-a="lock" data-i="${i}" title="Lock: keep this offer through rerolls and into the next shop">${o.locked ? 'LOCKED' : 'LOCK'}</button>`}</div>
     </div>`;
   }
 
@@ -186,14 +194,14 @@ export class RunUi {
     const r = this.g.run!, p = this.g.player, w = WEAPONS[p.weapon];
     const slot = (t: Turret | undefined, i: number) => t
       ? `<div class="ru-slot" data-h="t${i}" style="--t:${hex(TIERS[t.tier].color)}"><img alt="" src="${thumbs[t.def.w] ?? ''}"><b>${t.def.name}</b><span>${TIERS[t.tier].name} &middot; ${Math.round(r.turretDps(t.def, t.tier))}/s</span>
-          <div><button data-a="sell" data-i="${i}" title="Sell for 40% of its price">SELL ${COIN}${Math.round(r.turretValue(t) * 0.4)}</button>${r.canCombine(t) ? `<button class="up" data-a="combine" data-i="${i}" title="Merge two of the same into the next tier">COMBINE</button>` : ''}</div></div>`
+          <div><button data-a="sell" data-i="${i}" title="Sell for ${Math.round(TUNE.sell * 100)}% of its price">SELL ${COIN}${r.sellValue(t)}</button>${r.canCombine(t) ? `<button class="up" data-a="combine" data-i="${i}" title="Merge two of the same into the next tier">COMBINE</button>` : ''}</div></div>`
       : `<div class="ru-slot empty"><span>empty turret slot</span></div>`;
     const items = [...r.items.entries()].map(([id, n]) => `<span class="ru-item">${esc(ITEMS.find(i => i.id === id)?.name ?? id)}${n > 1 ? ` &times;${n}` : ''}<button data-a="sellitem" data-id="${id}" title="Sell one for ${r.itemValue(id)} coins">&times; ${r.itemValue(id)}</button></span>`).join('') || '<span class="dim">No items yet</span>';
     return `<div class="ru-load">
       <div class="ru-col"><div class="kit-label">YOUR GUN</div><div class="ru-slot main" style="--t:${hex(TIERS[r.mainTier].color)}"><img alt="" src="${thumbs[p.weapon] ?? ''}"><b>${w.name}</b><span>${TIERS[r.mainTier].name} &middot; &times;${TIER_DMG[r.mainTier]} dmg &middot; ${Math.round(r.mainDps())}/s</span></div>
         <div class="kit-label">TURRETS <span>${r.turrets.length}/${RUN.turretSlots} &middot; hover one to see its reach</span></div><div class="ru-slots">${Array.from({ length: RUN.turretSlots }, (_, i) => slot(r.turrets[i], i)).join('')}</div>
         <div class="kit-label">SETS <span>your gun + turrets, by class</span></div><div class="ru-sets">${this.setsHtml()}</div>
-        <div class="kit-label">ITEMS <span>&times; sells one for 40%</span></div><div class="ru-items">${items}</div></div>
+        <div class="kit-label">ITEMS <span>&times; sells one for ${Math.round(TUNE.sell * 100)}%</span></div><div class="ru-items">${items}</div></div>
       <div class="ru-col"><div class="kit-label">STATS <span>${r.ball.name} &middot; level ${r.lvl}${r.danger ? ` &middot; Danger ${r.danger}` : ''}</span></div><div class="ru-stats">${this.statsHtml()}</div></div>
     </div>`;
   }

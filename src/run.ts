@@ -19,7 +19,7 @@ import { CLIMB } from './arena';
 import { botSkill } from './director';
 import {
   RUN, TIERS, TIER_DMG, TIER_RATE, Stats, StatId, blankStats, LEVEL_UPS, ITEMS, ItemDef, ITEM_PRICE, TURRETS, TurretDef, MAIN_GUNS, BALLS, BallType,
-  MINIONS, MinionKind, MinionDef, dangerMods, COOP, BOMBER, HEALER, SHIELD, SPECIALS, SpecialId, SPECIAL_WAVES, WEAPON_CLASS, CLASSES, ClassId, ClassBonus, CRATES,
+  MINIONS, MinionKind, MinionDef, dangerMods, COOP, BOMBER, HEALER, SHIELD, TUNE, SPECIALS, SpecialId, SPECIAL_WAVES, WEAPON_CLASS, CLASSES, ClassId, ClassBonus, CRATES,
 } from './rundata';
 
 export interface Minion {
@@ -32,7 +32,7 @@ export interface Minion {
 }
 interface Telegraph { x: number; z: number; t: number; kind: MinionKind }
 interface Spit { x: number; z: number; vx: number; vz: number; t: number; dmg: number }
-interface Crate { id: number; x: number; z: number; spin: number }
+interface Crate { id: number; x: number; z: number; spin: number; gold?: boolean }
 interface Coin { id: number; x: number; z: number; y: number; vx: number; vz: number; vy: number; v: number; fly: number; spin: number }
 export interface Turret { def: TurretDef; tier: number; cool: number; grp: THREE.Group; aim: number; target: { x: number; z: number } | null; scanT: number }
 export type Offer =
@@ -44,7 +44,7 @@ interface Marker { id: number; x: number; z: number; prog: number; grp: THREE.Gr
 export interface WaveLog { n: number; coins: number; pops: number; taken: number }
 
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _p = new THREE.Vector3(), _c = new THREE.Color(), _w = new THREE.Color(1, 1, 1), _up = new THREE.Vector3(0, 1, 0);
-const MAXM = 200;
+const MAXM = 240;
 const DIFF_MUL: Record<string, number> = { easy: 0.75, normal: 1, hard: 1.3, adaptive: 1 };
 const KINDS = Object.keys(MINIONS) as MinionKind[];
 const TDEFS = TURRETS;
@@ -57,8 +57,11 @@ export class Run {
   /** This wave's twist, if it has one. */
   special: SpecialId | null = null;
   /** Crates picked up this wave (opened in the break), and the item in the one being opened. */
-  cratesPending = 0;
-  crateItem: ItemDef | null = null;
+  /** Crates to open in the break: 0 = normal, 1 = golden (pick one of three). */
+  crateQ: number[] = [];
+  get cratesPending() { return this.crateQ.length; }
+  /** What's inside the crate being opened: one offer, or three for a golden crate. */
+  crateOffers: Offer[] = [];
   crates: Crate[] = [];
   private crateId = 1;
   /** Active set bonuses, by class. */
@@ -245,7 +248,7 @@ export class Run {
     return dmg;
   }
   /** Damage bots deal the player (the elites and bosses): scaled with the wave and difficulty. */
-  enemyMul() { return (0.22 + 0.016 * this.n) * this.diff * this.dm.dmg; }
+  enemyMul() { return (0.22 + 0.019 * this.n) * this.diff * this.dm.dmg * TUNE.dmg; }
   lifesteal() {
     if (this.lifeCd > 0 || Math.random() * 100 >= this.stats.lifesteal) return;
     const p = this.g.player; if (!p.alive || p.hp >= p.maxHp) return;
@@ -276,7 +279,7 @@ export class Run {
       }
       // elites (gun bots) from wave 4; a boss on waves 10 and 20 (and every 10th in endless)
       const d = this.dm;
-      let elites = n < d.eliteFrom ? 0 : Math.min(3, Math.floor((n - d.eliteFrom + 3) / 4)) + (n >= 6 ? d.elites : 0);
+      let elites = n < d.eliteFrom ? 0 : Math.min(4, Math.floor((n - d.eliteFrom + 3) / 3.5)) + (n >= 6 ? d.elites : 0);
       if (this.coop && n >= 4) elites++;
       if (this.special === 'elites') elites += 3;
       elites = Math.min(g.babos.filter(b => !b.human).length - (boss ? 1 : 0), elites);
@@ -291,6 +294,8 @@ export class Run {
     g.audio.play(boss ? 'boss' : 'go');
   }
 
+  /** Most minions alive at once: 110 early, climbing to the tuned cap by wave 15. */
+  maxAlive() { const n = this.n, top = Math.min(MAXM - 10, TUNE.maxAlive); return Math.round(n <= 7 ? Math.min(RUN.maxAlive, top) : RUN.maxAlive + (top - RUN.maxAlive) * Math.min(1, (n - 7) / 8)); }
   waveTime(n: number) { return n > RUN.waves ? 60 : RUN.waveTime(n); }
   isBossWave(n: number) { return RUN.bossWaves.includes(n) || (n > RUN.waves && n % 10 === 0); }
   get bossWave() { return this.isBossWave(this.n); }
@@ -305,7 +310,7 @@ export class Run {
     // crates nobody reached go to whoever is nearest
     for (const c of this.crates) {
       let best: Babo | null = null, bd = 1e9; for (const h of this.humans) { const d = Math.hypot(h.x - c.x, h.z - c.z); if (d < bd) { bd = d; best = h; } }
-      if (best?.isPlayer) this.gotCrate(); else if (best) g.net.send({ k: 'rk', n: 1 });
+      if (best?.isPlayer) this.gotCrate(c.gold); else if (best) g.net.send({ k: 'rk', n: 1, g: c.gold ? 1 : 0 });
     }
     this.crates.length = 0;
     for (const b of g.babos) if (!b.human && b.alive) { b.alive = false; b.root.visible = false; b.respawnT = 1e9; if (b.boss) setBoss(b, false); }
@@ -315,7 +320,9 @@ export class Run {
   /** Every client, when a wave ends: piggy bank, harvesting, adaptive, then level-ups or the shop. */
   private breakLocal(loose: number) {
     const g = this.g, p = g.player;
-    if (loose > 0) { this.credit(loose, false); this.g.hud.toast(`+${loose} coins swept up from the floor`); }
+    const swept = Math.round(loose * TUNE.sweep);
+    if (swept > 0) { this.credit(swept, false); this.g.hud.toast(`+${swept} coins swept up from the floor${swept < loose ? ` (${loose - swept} lost)` : ''}`); }
+    else if (loose > 0) this.g.hud.toast(`${loose} coins left on the floor, lost`);
     const harvest = Math.round(Math.max(0, this.stats.harvest) * this.harvestGrow);
     this.harvestGrow *= 1.05;
     if (harvest > 0) { this.mats += harvest; this.earned += harvest; this.gainXp(harvest); }
@@ -347,7 +354,7 @@ export class Run {
   keepGoing() { this.endless = true; this.toLevelUps(); }
 
   private toLevelUps() {
-    if (this.cratesPending > 0) { this.phase = 'crate'; if (!this.crateItem) this.rollCrate(); this.g.hud.runUi.open(); return; }
+    if (this.cratesPending > 0) { this.phase = 'crate'; if (!this.crateOffers.length) this.rollCrate(); this.g.hud.runUi.open(); return; }
     if (this.pending > 0) { this.phase = 'levelup'; this.levelRerolls = 0; this.rollLevel(); }
     else { this.phase = 'shop'; this.rollShop(); }
     this.g.hud.runUi.open();
@@ -394,12 +401,13 @@ export class Run {
     if (this.spawnT <= 0) {
       this.spawnT = Math.max(1.2, 2.6 - Math.min(n, 20) * 0.07) * (this.bossWave ? 1.6 : 1);
       const alive = this.minions.length + this.tele.length;
-      if (alive < RUN.maxAlive) {
+      const cap = this.maxAlive();
+      if (alive < cap) {
         const endless = Math.max(0, n - RUN.waves) * 0.4;
         const spk = this.special === 'horde' ? 2.2 : this.special === 'elites' ? 0.6 : 1;
-        const size = Math.max(1, Math.round((3 + n * 0.6 + endless) * (0.8 + Math.random() * 0.4) * Math.min(1.15, Math.max(0.8, this.diff)) * d.count * (this.coop ? COOP.count : 1) * spk));
+        const size = Math.max(1, Math.round((3 + n * 0.6 + endless) * (0.8 + Math.random() * 0.4) * Math.min(1.15, Math.max(0.8, this.diff)) * d.count * (this.coop ? COOP.count : 1) * spk * TUNE.count));
         const c = this.spawnPoint(); if (c) {
-          for (let i = 0; i < Math.min(size, RUN.maxAlive - alive); i++) {
+          for (let i = 0; i < Math.min(size, cap - alive); i++) {
             const a = Math.random() * Math.PI * 2, r = Math.random() * 1.4;
             let x = c.x + Math.cos(a) * r, z = c.z + Math.sin(a) * r;
             if (g.arena.solidAt(x, z)) { x = c.x; z = c.z; }
@@ -438,9 +446,9 @@ export class Run {
   addMinion(kind: MinionKind, x: number, z: number, id = this.nextId++) {
     if (this.minions.length >= MAXM) return null;
     const d = MINIONS[kind], n = this.n, dm = this.dm;
-    const hp = (this.special === 'horde' ? 0.5 : 1) * d.hp * (1 + 0.26 * (n - 1)) * (this.g.saved.difficulty === 'hard' ? 1.15 : this.g.saved.difficulty === 'easy' ? 0.85 : 1) * dm.hp * (this.coop ? COOP.hp : 1);
+    const hp = (this.special === 'horde' ? 0.5 : 1) * d.hp * (1 + 0.26 * (n - 1) + TUNE.hpLate * Math.max(0, n - 8) ** 2) * TUNE.hp * (this.g.saved.difficulty === 'hard' ? 1.15 : this.g.saved.difficulty === 'easy' ? 0.85 : 1) * dm.hp * (this.coop ? COOP.hp : 1);
     const m: Minion = {
-      id, kind, def: d, x, z, vx: 0, vz: 0, r: d.r, hp, max: hp, dmg: d.dmg * (1 + 0.07 * (n - 1)) * this.diff * dm.dmg, speed: d.speed * Math.min(1.3, 1 + 0.012 * n) * dm.speed,
+      id, kind, def: d, x, z, vx: 0, vz: 0, r: d.r, hp, max: hp, dmg: d.dmg * (1 + 0.09 * (n - 1)) * this.diff * dm.dmg * TUNE.dmg, speed: d.speed * Math.min(1.3, 1 + 0.012 * n) * dm.speed,
       flash: 0, burnT: 0, burnTick: 0, burnBy: -1, hitCd: 0, face: 0, st: 0, stT: 1 + Math.random(), dx: 0, dz: 0, shootT: 1.5 + Math.random() * 1.5, dead: false,
       tg: -1, tgT: 0, tx: x, tz: z, seen: 0,
     };
@@ -454,7 +462,7 @@ export class Run {
     g.spawn(slot);
     const pool: WeaponId[] = this.n < 8 ? ['pistol', 'shotgun'] : this.n < 14 ? ['pistol', 'shotgun', 'bouncer', 'chaingun'] : ['shotgun', 'chaingun', 'bouncer', 'rocket', 'flamethrower'];
     setWeapon(slot, pool[(Math.random() * pool.length) | 0]); slot.reserve = -1;
-    slot.maxHp = slot.hp = Math.round(90 * (1 + 0.07 * this.n) * this.diff * this.dm.hp);
+    slot.maxHp = slot.hp = Math.round(90 * (1 + 0.07 * this.n) * this.diff * this.dm.hp * TUNE.hp);
     slot.ability = 'dash';
   }
 
@@ -722,7 +730,7 @@ export class Run {
     if (by === this.g.player) this.pops++;
     this.burst(m, true);
     for (let i = 0; i < m.def.coins * (this.special === 'gold' ? 2 : 1); i++) this.dropCoin(m.x, m.z, 1);
-    if (Math.random() < CRATES.minion * (1 + Math.max(0, this.stats.luck) / 100)) this.dropCrate(m.x, m.z);
+    if (Math.random() < CRATES.minion * TUNE.crate * (1 + Math.max(0, this.stats.luck) / 100)) this.dropCrate(m.x, m.z);
     if (m.kind === 'bomber' && m.st !== 3) this.bomberBlast(m, by);
     if (m.kind === 'splitter') for (let i = 0; i < 3; i++) { const a = (i / 3) * Math.PI * 2; this.addMinion('mini', m.x + Math.cos(a) * 0.4, m.z + Math.sin(a) * 0.4); }
   }
@@ -740,14 +748,14 @@ export class Run {
     if (!this.host) return;
     const n = b.boss ? 30 : 8;
     for (let i = 0; i < n; i++) this.dropCoin(b.x + (Math.random() - 0.5), b.z + (Math.random() - 0.5), 1);
-    const crates = b.boss ? CRATES.boss : Math.random() < CRATES.elite ? 1 : 0;
-    for (let i = 0; i < crates; i++) this.dropCrate(b.x + (i - 0.5) * 0.9, b.z);
+    if (b.boss) { this.dropCrate(b.x - 0.5, b.z, true); this.dropCrate(b.x + 0.5, b.z); }
+    else if (Math.random() < Math.min(1, CRATES.elite * TUNE.crate)) this.dropCrate(b.x, b.z);
   }
 
   // ---------- loot crates ----------
-  private dropCrate(x: number, z: number) {
+  private dropCrate(x: number, z: number, gold = false) {
     if (this.crates.length >= 12) return;
-    this.crates.push({ id: this.crateId++, x, z, spin: Math.random() * 6 });
+    this.crates.push({ id: this.crateId++, x, z, spin: Math.random() * 6, gold });
     this.g.fx.ring(x, z, 1.2, 0xffd84a, 0.4); this.g.audio.play('pickup', x, z, 0.6);
   }
   /** Host: whoever rolls over a crate gets it (the guest is told). */
@@ -757,27 +765,53 @@ export class Run {
       for (const h of this.humans) {
         if (!h.alive || Math.hypot(h.x - c.x, h.z - c.z) > 1.0) continue;
         this.crates.splice(i, 1);
-        if (h.isPlayer) this.gotCrate(); else this.g.net.send({ k: 'rk', n: 1 });
+        if (h.isPlayer) this.gotCrate(c.gold); else this.g.net.send({ k: 'rk', n: 1, g: c.gold ? 1 : 0 });
         break;
       }
     }
   }
   /** A crate for me: opened in the break. */
-  gotCrate() { this.cratesPending++; this.g.hud.floaterText(this.g.player.x, this.g.player.z, 'CRATE!', '#ffd84a'); this.g.audio.play('levelup'); }
-  /** The item inside the crate being opened (better odds than the shop). */
-  private rollCrate() {
-    const tier = Math.max(this.rollTier(30), this.n >= 8 ? 1 : 0);
-    const pool = ITEMS.filter(it => it.tier === tier && !(it.max && (this.items.get(it.id) ?? 0) >= it.max));
-    this.crateItem = pool.length ? pool[(Math.random() * pool.length) | 0] : ITEMS[(Math.random() * 10) | 0];
+  gotCrate(gold = false) { if (gold) this.crateQ.unshift(1); else this.crateQ.push(0); this.g.hud.floaterText(this.g.player.x, this.g.player.z, gold ? 'GOLDEN CRATE!' : 'CRATE!', '#ffd84a'); this.g.audio.play('levelup'); }
+  /** Fill the crate being opened: an item, a turret or a main gun, never below the wave's minimum tier. */
+  rollCrate() {
+    const gold = this.crateQ[0] === 1, out: Offer[] = [];
+    for (let i = 0; i < (gold ? 3 : 1); i++) {
+      let o: Offer | null = null;
+      for (let k = 0; k < 8 && !o; k++) { o = this.crateOffer(gold); if (o && out.some(x => this.sameOffer(x, o!))) o = null; }
+      if (o) out.push(o);
+    }
+    this.crateOffers = out;
   }
-  crateValue() { return this.crateItem ? Math.round(ITEM_PRICE[this.crateItem.tier] * this.priceScale() * 0.5) : 0; }
-  /** Keep the crate's item, or sell it on the spot. */
-  openCrate(keep: boolean) {
-    const it = this.crateItem; if (!it) return;
-    if (keep) { this.items.set(it.id, (this.items.get(it.id) ?? 0) + 1); this.recalc(); this.g.audio.play('pickup'); }
+  private sameOffer(a: Offer, b: Offer) {
+    return a.kind === b.kind && (a.kind === 'item' ? a.item === (b as typeof a).item : a.kind === 'turret' ? a.turret === (b as typeof a).turret : a.w === (b as typeof a).w);
+  }
+  private crateOffer(gold: boolean): Offer | null {
+    const tier = Math.min(3, Math.max(this.rollTier(30), CRATES.minTier(this.n) + (gold ? 1 : 0)));
+    const sc = this.priceScale(), tierK = [1, 1.9, 3.2, 5][tier], r = Math.random();
+    if (r < 0.3) {
+      // a turret, but only one you can place (a free slot, or a match to combine with)
+      const fits = TURRETS.filter(d => this.turrets.length < RUN.turretSlots || this.turrets.some(t => t.def === d && t.tier === tier && t.tier < 3));
+      if (fits.length) { const def = fits[(Math.random() * fits.length) | 0]; return { kind: 'turret', turret: def, tier, price: Math.round(def.price * tierK * sc), locked: false, sold: false }; }
+    } else if (r < 0.45) {
+      const gdef = MAIN_GUNS[(Math.random() * MAIN_GUNS.length) | 0];
+      return { kind: 'gun', w: gdef.w, tier, price: Math.round(gdef.price * tierK * sc), locked: false, sold: false };
+    }
+    const pool = ITEMS.filter(it => it.tier === tier && !(it.max && (this.items.get(it.id) ?? 0) >= it.max));
+    if (!pool.length) return null;
+    const it = pool[(Math.random() * pool.length) | 0];
+    return { kind: 'item', item: it, tier: it.tier, price: Math.round(ITEM_PRICE[it.tier] * sc), locked: false, sold: false };
+  }
+  /** Coins for selling the crate unopened-ish: half the best thing inside. */
+  crateValue() { return this.crateOffers.length ? Math.round(Math.max(...this.crateOffers.map(o => o.price)) * 0.5) : 0; }
+  /** Take offer `i` from the crate (free), or sell the lot with i = -1. */
+  openCrate(i: number) {
+    if (!this.crateOffers.length) return;
+    const o = this.crateOffers[i];
+    if (o) { const m = this.grant(o); if (m) return m; this.g.audio.play('pickup'); }
     else { this.mats += this.crateValue(); this.g.audio.play('coin'); }
-    this.cratesPending--; this.crateItem = null;
-    if (this.cratesPending > 0) this.rollCrate(); else this.toLevelUps();
+    this.crateQ.shift(); this.crateOffers = [];
+    if (this.crateQ.length > 0) this.rollCrate(); else this.toLevelUps();
+    return null;
   }
 
   // ---------- bombers ----------
@@ -1007,7 +1041,7 @@ export class Run {
     const c: number[] = []; for (const k of this.coins) { if (c.length >= 600) break; c.push(k.id, q(k.x), q(k.z)); }
     const tl: number[] = []; for (const t of this.tele) tl.push(q(t.x), q(t.z));
     const sp: number[] = []; for (const s of this.spits) sp.push(q(s.x), q(s.z), q(s.vx), q(s.vz));
-    const k: number[] = []; for (const c of this.crates) k.push(c.id, q(c.x), q(c.z));
+    const k: number[] = []; for (const c of this.crates) k.push(c.gold ? -c.id - 1 : c.id, q(c.x), q(c.z));
     return { k, sw: this.special ? Object.keys(SPECIALS).indexOf(this.special) : -1, n: this.n, t: Math.round(this.t * 10) / 10, ph: this.phase === 'wave' ? 0 : 1, b: this.bossId, hr: this.ready ? 1 : 0, lc: this.looseLast, e: this.endless ? 1 : 0, m, c, tl, sp, mh: this.g.babos.map(b => b.maxHp) };
   }
   /** Host: take the coins picked up since the last update (they're credited to the guest too). */
@@ -1031,7 +1065,7 @@ export class Run {
     const g = this.g, now = performance.now();
     this.t = r.t; this.endless = r.e === 1;
     this.special = r.sw >= 0 ? (Object.keys(SPECIALS)[r.sw] as SpecialId) : null;
-    if (Array.isArray(r.k)) { const K = r.k as number[]; this.crates = []; for (let i = 0; i + 2 < K.length; i += 3) this.crates.push({ id: K[i], x: K[i + 1] / 10, z: K[i + 2] / 10, spin: this.g.clock + K[i] }); }
+    if (Array.isArray(r.k)) { const K = r.k as number[]; this.crates = []; for (let i = 0; i + 2 < K.length; i += 3) { const gold = K[i] < 0, id = gold ? -K[i] - 1 : K[i]; this.crates.push({ id, x: K[i + 1] / 10, z: K[i + 2] / 10, spin: this.g.clock + id, gold }); } }
     if ((r.hr === 1) !== this.partnerReady) { this.partnerReady = r.hr === 1; if (g.hud.runUi.isOpen) g.hud.runUi.render(); }
     // boss changes
     if (r.b !== this.bossId) {
@@ -1110,8 +1144,8 @@ export class Run {
   // ---------- level-ups ----------
   rollTier(extraLuck = 0): number {
     const n = Math.min(this.n, 20), k = 1 + Math.max(0, this.stats.luck + extraLuck) / 100, r = Math.random();
-    const p4 = n >= 8 ? Math.min(0.1, 0.012 * (n - 7)) * k : 0;
-    const p3 = n >= 4 ? Math.min(0.3, 0.025 * (n - 3)) * k : 0;
+    const p4 = n >= 8 ? Math.min(0.06, 0.008 * (n - 7)) * k : 0;
+    const p3 = n >= 4 ? Math.min(0.22, 0.02 * (n - 3)) * k : 0;
     const p2 = n >= 2 ? Math.min(0.6, 0.07 * (n - 1)) * k : 0;
     return r < p4 ? 3 : r < p4 + p3 ? 2 : r < p4 + p3 + p2 ? 1 : 0;
   }
@@ -1129,7 +1163,7 @@ export class Run {
   }
 
   // ---------- shop ----------
-  private priceScale() { return (1 + 0.12 * Math.max(0, this.n - 1)) * this.dm.price; }
+  private priceScale() { return (1 + TUNE.priceGrow * Math.max(0, this.n - 1)) * this.dm.price * TUNE.price; }
   private makeOffer(forceTurret = false): Offer {
     const r = Math.random(), tier = this.rollTier(), sc = this.priceScale(), tierK = [1, 1.9, 3.2, 5][tier];
     if (forceTurret || r < 0.3) {
@@ -1156,14 +1190,22 @@ export class Run {
     }
     this.offers = out;
   }
-  get rerollCost() { return Math.max(1, Math.floor(Math.min(this.n, 25) * 0.75)) + this.rerolls * Math.max(1, Math.floor(Math.min(this.n, 25) * 0.4)); }
+  get rerollCost() { return Math.max(1, Math.floor(Math.min(this.n, 25) * 0.75)) + this.rerolls * Math.max(2, Math.floor(Math.min(this.n, 25) * 0.6)); }
   reroll() { const c = this.rerollCost; if (this.mats < c) return false; this.mats -= c; this.rerolls++; this.rollShop(); return true; }
 
   /** Buy an offer. Returns a message when it can't. */
   buy(i: number): string | null {
-    const o = this.offers[i], g = this.g, p = g.player;
+    const o = this.offers[i], g = this.g;
     if (!o || o.sold) return null;
     if (this.mats < o.price) return 'Not enough coins';
+    const m = this.grant(o); if (m) return m;
+    this.mats -= o.price; o.sold = true; o.locked = false;
+    g.audio.play('pickup');
+    return null;
+  }
+  /** Put an offer into your kit (bought or from a crate). Returns a message when it can't. */
+  grant(o: Offer): string | null {
+    const p = this.g.player;
     if (o.kind === 'turret') {
       const same = this.turrets.find(t => t.def === o.turret && t.tier === o.tier && t.tier < 3);
       if (this.turrets.length >= RUN.turretSlots) {
@@ -1178,14 +1220,13 @@ export class Run {
       this.items.set(o.item.id, (this.items.get(o.item.id) ?? 0) + 1);
       this.recalc();
     }
-    this.mats -= o.price; o.sold = true; o.locked = false;
     this.recalcClasses();
-    g.audio.play('pickup');
     return null;
   }
   turretValue(t: Turret) { return Math.round(t.def.price * [1, 1.9, 3.2, 5][t.tier] * this.priceScale()); }
-  sell(t: Turret) { this.mats += Math.round(this.turretValue(t) * 0.4); this.removeTurret(t); this.recalcClasses(); this.g.audio.play('coin'); }
-  itemValue(id: string) { const it = ITEMS.find(i => i.id === id); return it ? Math.round(ITEM_PRICE[it.tier] * this.priceScale() * 0.4) : 0; }
+  sellValue(t: Turret) { return Math.round(this.turretValue(t) * TUNE.sell); }
+  sell(t: Turret) { this.mats += this.sellValue(t); this.removeTurret(t); this.recalcClasses(); this.g.audio.play('coin'); }
+  itemValue(id: string) { const it = ITEMS.find(i => i.id === id); return it ? Math.round(ITEM_PRICE[it.tier] * this.priceScale() * TUNE.sell) : 0; }
   sellItem(id: string) {
     const n = this.items.get(id) ?? 0; if (!n) return;
     this.mats += this.itemValue(id);
@@ -1233,7 +1274,7 @@ export class Run {
     n = 0; let sh = 0;
     for (const c of this.crates) {
       if (n >= 16) break;
-      _q.setFromAxisAngle(_up, c.spin); _p.set(c.x, 0.26 + Math.sin(clock * 3 + c.id) * 0.06, c.z); _s.setScalar(1);
+      _q.setFromAxisAngle(_up, c.spin); _p.set(c.x, (c.gold ? 0.34 : 0.26) + Math.sin(clock * 3 + c.id) * 0.06, c.z); _s.setScalar(c.gold ? 1.4 : 1);
       _m.compose(_p, _q, _s); this.crateMesh.setMatrixAt(n, _m); this.crateBand.setMatrixAt(n, _m); n++;
     }
     this.crateMesh.count = this.crateBand.count = n; this.crateMesh.instanceMatrix.needsUpdate = true; this.crateBand.instanceMatrix.needsUpdate = true;

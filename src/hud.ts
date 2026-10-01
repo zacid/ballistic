@@ -6,6 +6,7 @@ import { QUALITY, Quality } from './render';
 import { buildGun } from './babo';
 import type { RenderFlags } from './render';
 import { RunUi } from './runui';
+import { TunePanel } from './tune';
 import { BALLS, RUN, DANGER } from './rundata';
 import { blankLife } from './game';
 
@@ -35,10 +36,13 @@ export class Hud {
   private abWasReady = true;
   private pingT = 0;
   runUi!: RunUi;
+  tune!: TunePanel;
   private lobbyT = 0;
 
   constructor(private g: Game) {
     this.runUi = new RunUi(g);
+    this.tune = new TunePanel(g);
+    $('open-tune').addEventListener('click', () => this.tune.toggle(true));
     this.buildMenu();
     $('play').addEventListener('click', () => { this.g.audio.unlock(); this.g.startSolo(); });
     $('play-online').addEventListener('click', () => { this.g.audio.play('click'); this.g.openLobby(); });

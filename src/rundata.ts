@@ -10,7 +10,7 @@ export const RUN = {
   /** XP to reach the next level from `lvl` (Brotato's curve). */
   xpFor: (lvl: number) => (lvl + 3) * (lvl + 3),
   turretSlots: 4,
-  maxAlive: 110,
+  maxAlive: 110,          // early waves; late waves climb towards TUNE.maxAlive
   iframes: 0.45,          // after a minion bumps you, the others can't for a moment
   startHp: 100,
 };
@@ -138,9 +138,9 @@ export const MINIONS: Record<MinionKind, MinionDef> = {
   // rolls up, stops, fizzes, and blows up; pop one first and it takes its neighbours with it
   bomber: { hp: 12, speed: 3.5, dmg: 24, r: 0.34, color: 0xff4d2e, coins: 1, from: 6, weight: 3, mass: 1 },
   // hangs back and patches up the minions around it every couple of seconds
-  healer: { hp: 20, speed: 2.6, dmg: 6, r: 0.36, color: 0x7dffb0, coins: 2, from: 8, weight: 2, mass: 1 },
+  healer: { hp: 20, speed: 2.6, dmg: 6, r: 0.36, color: 0x7dffb0, coins: 2, from: 6, weight: 2, mass: 1 },
   // a shield on its front shrugs off most of a hit from ahead; flank it, burn it, or blow it up
-  shielder: { hp: 30, speed: 2.3, dmg: 10, r: 0.44, color: 0x6f8fb8, coins: 2, from: 11, weight: 2, mass: 2 },
+  shielder: { hp: 30, speed: 2.3, dmg: 10, r: 0.44, color: 0x6f8fb8, coins: 2, from: 8, weight: 2, mass: 2 },
 };
 /** Bombers: how close they get before lighting the fuse, the fuse, and the blast. */
 export const BOMBER = { trigger: 1.7, fuse: 0.75, radius: 2.3, chain: 32 };
@@ -190,8 +190,37 @@ export const CLASSES: Record<ClassId, { name: string; color: number; tiers: Clas
     { dmg: 0.45, rate: 0, range: 0.2, radius: 0, chains: 3, text: 'Three more chains, +45% damage, +20% range' },
   ] },
 };
-/** Loot crates: dropped by elites (sometimes), bosses (always) and, rarely, minions. Opened after the wave. */
-export const CRATES = { elite: 0.4, boss: 2, minion: 0.008 };
+/** Loot crates: dropped by elites (sometimes), bosses (a golden pick-of-three plus a normal one) and,
+ *  very rarely, minions. Opened after the wave. `minTier` is the lowest tier inside, by wave. */
+export const CRATES = { elite: 0.25, minion: 0.004, minTier: (n: number) => (n >= 14 ? 2 : n >= 6 ? 1 : 0) };
+
+// ---------- tuning knobs (the in-game tuning panel edits these; saved per browser) ----------
+export const TUNE_DEFAULTS = {
+  hp: 1,            // minion and elite health
+  hpLate: 0.018,    // extra minion health per (wave - 8)^2: the late-game curve
+  dmg: 1,           // damage minions and elites deal you
+  count: 1,         // how many minions spawn
+  maxAlive: 150,    // the most minions alive at once, reached by wave 15
+  price: 1,         // shop prices
+  priceGrow: 0.15,  // price climb per wave
+  sweep: 0.5,       // share of coins left on the floor that get swept up at wave end
+  sell: 0.3,        // share of the price you get back when selling
+  crate: 1,         // crate drop chance
+};
+export type Tune = typeof TUNE_DEFAULTS;
+export const TUNE: Tune = { ...TUNE_DEFAULTS };
+export const TUNE_INFO: { k: keyof Tune; name: string; min: number; max: number; step: number; pct?: boolean; raw?: boolean }[] = [
+  { k: 'hp', name: 'Minion health', min: 0.5, max: 2.5, step: 0.05 },
+  { k: 'hpLate', name: 'Late-game health ramp', min: 0, max: 0.06, step: 0.002, raw: true },
+  { k: 'dmg', name: 'Damage to you', min: 0.5, max: 2.5, step: 0.05 },
+  { k: 'count', name: 'Spawn size', min: 0.5, max: 2.5, step: 0.05 },
+  { k: 'maxAlive', name: 'Max minions alive', min: 60, max: 230, step: 5, raw: true },
+  { k: 'price', name: 'Shop prices', min: 0.5, max: 2, step: 0.05 },
+  { k: 'priceGrow', name: 'Price climb per wave', min: 0.05, max: 0.3, step: 0.01, pct: true },
+  { k: 'sweep', name: 'Floor coins swept up', min: 0, max: 1, step: 0.05, pct: true },
+  { k: 'sell', name: 'Sell-back', min: 0.1, max: 0.6, step: 0.05, pct: true },
+  { k: 'crate', name: 'Crate drops', min: 0, max: 3, step: 0.1 },
+];
 
 // ---------- danger levels (win a run to unlock the next) ----------
 export const DANGER = [
@@ -204,7 +233,7 @@ export const DANGER = [
 ];
 /** Per danger level: minion hp, damage, count and speed multipliers, extra elites, and shop prices. */
 export function dangerMods(d: number) {
-  return { hp: 1 + 0.14 * d, dmg: 1 + 0.1 * d, count: 1 + 0.08 * d, speed: 1 + 0.035 * d, elites: d >= 2 ? 1 : 0, eliteFrom: d >= 4 ? 2 : 4, price: 1 + 0.05 * d, aim: 0.03 * d };
+  return { hp: 1 + 0.14 * d, dmg: 1 + 0.1 * d, count: 1 + 0.08 * d, speed: 1 + 0.035 * d, elites: d >= 2 ? 1 : 0, eliteFrom: d >= 4 ? 2 : 3, price: 1 + 0.05 * d, aim: 0.03 * d };
 }
 /** Two players: more and tougher minions, a tankier boss. */
 export const COOP = { count: 1.6, hp: 1.25, boss: 1.5, reviveT: 3, reviveR: 1.6 };
